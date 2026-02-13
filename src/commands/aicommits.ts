@@ -11,51 +11,8 @@ import {
 	getDetectedMessage,
 } from '../utils/git.js';
 import { getConfig } from '../utils/config.js';
-import {
-	generateCommitMessage,
-	type ConventionalTypeJudgeReport,
-	type ConventionalTypeScoreCandidate,
-} from '../utils/openai.js';
+import { generateCommitMessage } from '../utils/openai.js';
 import { KnownError, handleCliError } from '../utils/error.js';
-
-const formatScore = (score: number, digits: number) => score.toFixed(digits);
-
-const formatPrefixScoreLine = (
-	candidate: ConventionalTypeScoreCandidate,
-	index: number,
-) => {
-	const gateLabel = candidate.modelHardGatePass === candidate.hardGatePass
-		? (candidate.hardGatePass ? 'pass' : 'fail')
-		: `${candidate.hardGatePass ? 'pass' : 'fail'}(model=${candidate.modelHardGatePass ? 'pass' : 'fail'})`;
-
-	return (
-	`${index + 1}. ${candidate.typeName}`
-	+ ` weighted=${formatScore(candidate.weightedScore, 2)}`
-	+ ` (E=${formatScore(candidate.evidenceMatch, 1)}`
-	+ ` C=${formatScore(candidate.titleBodyConsistency, 1)}`
-	+ ` X=${formatScore(candidate.exclusivity, 1)}`
-	+ ` w=${formatScore(candidate.typeWeight, 2)}`
-	+ ` gate=${gateLabel})`
-	);
-};
-
-const printPrefixScores = (report: ConventionalTypeJudgeReport) => {
-	const topCandidates = report.topCandidates;
-
-	console.log(dim(`     Prefix scoring source: ${report.source}`));
-
-	if (topCandidates.length === 0) {
-		console.log(dim('     Prefix scoring returned no valid candidates.'));
-		console.log(dim('     Locked type: none'));
-		return;
-	}
-
-	for (const [index, candidate] of topCandidates.entries()) {
-		console.log(dim(`     ${formatPrefixScoreLine(candidate, index)}`));
-	}
-
-	console.log(dim(`     Locked type: ${report.selectedType || 'none'}`));
-};
 
 export default async (
 	generate: number | undefined,
@@ -114,7 +71,6 @@ export default async (
 	const s = spinner();
 	s.start('The AI is analyzing your changes');
 	let messages: string[];
-	let changedToGenerationStage = false;
 	try {
 		messages = await generateCommitMessage(
 			config.OPENAI_KEY,
@@ -126,27 +82,11 @@ export default async (
 			config.type,
 			config.timeout,
 			config.proxy,
-			{
-				...promptOptions,
-				onConventionalTypeScored: (report) => {
-					const summary = report.topCandidates
-						.map((item) => {
-							const gateMismatch = item.modelHardGatePass !== item.hardGatePass;
-							const gateFlag = item.hardGatePass ? '' : '(gate-fail)';
-							return `${item.typeName}=${formatScore(item.weightedScore, 2)}${gateMismatch ? '(gate-adjusted)' : gateFlag}`;
-						})
-						.join(', ');
-
-					s.stop(summary ? `Prefix scoring complete: ${summary}` : 'Prefix scoring complete');
-					printPrefixScores(report);
-					s.start('The AI is generating your commit message');
-					changedToGenerationStage = true;
-				},
-			},
+			promptOptions,
 			config.temperature,
 		);
 	} finally {
-		s.stop(changedToGenerationStage ? 'Commit messages generated' : 'Changes analyzed');
+		s.stop('Changes analyzed');
 	}
 
 	if (messages.length === 0) {
