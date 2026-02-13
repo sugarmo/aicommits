@@ -203,6 +203,21 @@ const getAnchorRequirementInstruction = (
 	].join('\n');
 };
 
+const getConventionalSubjectInstruction = (
+	type: CommitType,
+) => {
+	if (type !== 'conventional') {
+		return '';
+	}
+
+	return [
+		'Conventional title subject rules:',
+		'- The subject text after "<type>(<scope>): " must not start with the same type word.',
+		'- Example to avoid: "refactor: refactor ...".',
+		'- For alphabetic languages (for example English), capitalize the first word in the subject.',
+	].join('\n');
+};
+
 export const generatePrompt = (
 	locale: string,
 	maxLength: number,
@@ -221,6 +236,7 @@ export const generatePrompt = (
 		'Be specific: include concrete details (package names, versions, functionality) rather than generic statements.',
 		getChangedFilesInstruction(options.changedFiles),
 		getAnchorRequirementInstruction(type),
+		getConventionalSubjectInstruction(type),
 		getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
 		specifyCommitFormat(type, options.conventionalFormat, includeDetails),
 		getDefaultStyleInstructions(),

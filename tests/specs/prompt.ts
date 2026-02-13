@@ -40,6 +40,8 @@ export default testSuite(({ describe, test }) => {
 			});
 
 			expect(prompt).toMatch('Use GitHub Copilot style.');
+			expect(prompt).toMatch('Conventional title subject rules:');
+			expect(prompt).toMatch('Example to avoid: "refactor: refactor ..."');
 			expect(prompt).toMatch('The body should be 3-6 concise technical prose sentences');
 			expect(prompt).toMatch('Do not use section labels like "Impact:"');
 		});

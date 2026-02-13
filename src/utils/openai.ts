@@ -664,8 +664,6 @@ const deduplicateMessages = (array: string[]) => Array.from(new Set(array));
 const chineseCharacterPattern = /[\u3400-\u9fff]/;
 const conventionalTitlePrefixPattern = /^([a-z]+(?:\([^)]+\))?:\s*)(.+)$/i;
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 const isChineseLocale = (locale: string) => {
 	const normalized = locale.trim().toLowerCase();
 	return normalized === 'cn' || normalized.startsWith('zh');
@@ -684,93 +682,6 @@ const splitConventionalTitle = (title: string) => {
 		prefix: match[1],
 		subject: (match[2] || '').trim(),
 	};
-};
-
-const getConventionalTypeFromPrefix = (prefix: string) => {
-	const match = prefix.match(/^([a-z]+)(?:\([^)]+\))?:\s*$/i);
-	return match?.[1]?.trim().toLowerCase() || '';
-};
-
-const uppercaseAsciiInitial = (value: string) => value.replace(/^[a-z]/, char => char.toUpperCase());
-
-const normalizeConventionalSubject = (
-	subject: string,
-	typeName: string,
-	locale: string,
-) => {
-	const trimmed = subject.trim();
-	if (!trimmed || !typeName) {
-		return trimmed;
-	}
-
-	const duplicateTypePattern = new RegExp(
-		`^(?:${escapeRegExp(typeName)})(?:\\b|[-_])(?:\\s*[:：-])?\\s*`,
-		'i',
-	);
-
-	let normalized = trimmed;
-	let removedDuplicateType = false;
-
-	while (duplicateTypePattern.test(normalized)) {
-		const next = normalized.replace(duplicateTypePattern, '').trimStart();
-		if (!next || next === normalized) {
-			break;
-		}
-
-		normalized = next;
-		removedDuplicateType = true;
-	}
-
-	if (!normalized) {
-		if (removedDuplicateType && !isChineseLocale(locale)) {
-			return uppercaseAsciiInitial(trimmed);
-		}
-		return trimmed;
-	}
-
-	if (removedDuplicateType && !isChineseLocale(locale) && /^[a-z]/.test(normalized)) {
-		return uppercaseAsciiInitial(normalized);
-	}
-
-	return normalized;
-};
-
-const normalizeConventionalTitle = (
-	title: string,
-	locale: string,
-) => {
-	const { prefix, subject } = splitConventionalTitle(title);
-	if (!prefix) {
-		return title.trim();
-	}
-
-	const typeName = getConventionalTypeFromPrefix(prefix);
-	if (!typeName) {
-		return title.trim();
-	}
-
-	const normalizedSubject = normalizeConventionalSubject(subject, typeName, locale);
-	return `${prefix}${normalizedSubject || subject}`;
-};
-
-const normalizeGeneratedMessage = (
-	message: string,
-	includeDetails: boolean,
-	type: CommitType,
-	locale: string,
-) => {
-	if (type !== 'conventional') {
-		return message;
-	}
-
-	const { title, body } = includeDetails
-		? splitCommitMessage(message)
-		: { title: message.trim(), body: '' };
-	const normalizedTitle = normalizeConventionalTitle(title, locale);
-
-	return includeDetails
-		? formatCommitMessage(normalizedTitle, body)
-		: normalizedTitle;
 };
 
 const shouldRewriteTitleToLocale = (
@@ -1002,17 +913,9 @@ export const generateCommitMessage = async (
 			)),
 		);
 
-		const normalizedMessages = localizedMessages
-			.map(message => normalizeGeneratedMessage(
-				message,
-				includeDetails,
-				type,
-				locale,
-			))
-			.filter(Boolean);
-
 		return deduplicateMessages(
-			normalizedMessages,
+			localizedMessages
+				.filter(Boolean),
 		);
 	} catch (error) {
 		const errorAsAny = error as any;
