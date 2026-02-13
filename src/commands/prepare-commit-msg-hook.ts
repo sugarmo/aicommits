@@ -39,6 +39,14 @@ export default () => (async () => {
 	s.start('The AI is analyzing your changes');
 	let messages: string[];
 	try {
+		const promptOptions = {
+			includeDetails: config.details,
+			instructions: config.instructions,
+			conventionalFormat: config['conventional-format'],
+			conventionalTypes: config['conventional-types'],
+			changedFiles: staged.files,
+		};
+
 		messages = await generateCommitMessage(
 			config.OPENAI_KEY,
 			config.model,
@@ -49,6 +57,8 @@ export default () => (async () => {
 			config.type,
 			config.timeout,
 			config.proxy,
+			promptOptions,
+			config.temperature,
 		);
 	} finally {
 		s.stop('Changes analyzed');
