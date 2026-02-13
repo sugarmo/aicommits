@@ -74,6 +74,32 @@ aicommits --generate <i> # or -g <i>
 
 > Warning: this uses more tokens, meaning it costs more.
 
+#### Generate title + details
+
+If you want both a commit title and body:
+
+```sh
+aicommits --details
+```
+
+#### Default style
+
+The generator uses a GitHub Copilot-like style by default and prefers commit titles with a concrete file/class/module anchor so commit lists are easier to scan.
+
+You can still fine-tune output using custom instructions:
+
+```sh
+aicommits --details --instructions "Use shorter body sentences and prioritize class names in the title"
+```
+
+#### Customize conventional format
+
+You can combine conventional commits with custom output format and type mapping:
+
+```sh
+aicommits --type conventional --conventional-format "<type>(<scope>): <subject>" --conventional-types '{"feature":"Introduce a feature","bugfix":"Fix defects"}'
+```
+
 ### Git hook
 
 You can also integrate _aicommits_ with Git via the [`prepare-commit-msg`](https://git-scm.com/docs/githooks#_prepare_commit_msg) hook. This lets you use Git like you normally would, and edit the commit message before committing.
@@ -158,6 +184,8 @@ Default: `en`
 
 The locale to use for the generated commit messages. Consult the list of codes in: https://wikipedia.org/wiki/List_of_ISO_639-1_codes.
 
+Common aliases are normalized automatically (for example `cn` -> `zh-CN`).
+
 #### generate
 
 Default: `1`
@@ -201,6 +229,68 @@ Default: `50`
 
 ```sh
 aicommits config set max-length=100
+```
+
+#### type
+
+Default: plain format
+
+Set commit type formatting:
+
+```sh
+aicommits config set type=conventional
+```
+
+#### details
+
+Default: `false`
+
+Set this to `true` to generate title and body:
+
+```sh
+aicommits config set details=true
+```
+
+#### temperature
+
+Sampling temperature for AI generation.
+
+Valid range: `0` to `2`
+
+```sh
+aicommits config set temperature=1
+```
+
+If unset, the model/provider default is used.
+
+#### instructions
+
+Default: empty
+
+Additional custom prompt instructions:
+
+```sh
+aicommits config set instructions="Use short and direct wording"
+```
+
+#### conventional-format
+
+Default: `<type>[optional (<scope>)]: <commit message>`
+
+Customize the conventional output template:
+
+```sh
+aicommits config set conventional-format="<type>(<scope>): <subject>"
+```
+
+#### conventional-types
+
+Default: built-in conventional type map
+
+Customize type descriptions with JSON:
+
+```sh
+aicommits config set conventional-types='{"feature":"Introduce a feature","bugfix":"Fix defects"}'
 ```
 
 ## How it works

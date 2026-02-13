@@ -69,6 +69,108 @@ export default testSuite(({ describe }) => {
 			});
 		});
 
+		await describe('locale', ({ test }) => {
+			test('normalizes cn alias to zh-CN', async () => {
+				await aicommits(['config', 'set', 'locale=cn']);
+
+				const get = await aicommits(['config', 'get', 'locale']);
+				expect(get.stdout).toBe('locale=zh-CN');
+			});
+		});
+
+		await describe('temperature', ({ test }) => {
+			test('must be a number', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'temperature=abc'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch('Must be a number');
+			});
+
+			test('must be in range 0..2', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'temperature=2.1'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/less or equal to 2/i);
+			});
+
+			test('updates config', async () => {
+				const temperature = 'temperature=1';
+				await aicommits(['config', 'set', temperature]);
+
+				const configFile = await fs.readFile(configPath, 'utf8');
+				expect(configFile).toMatch(temperature);
+
+				const get = await aicommits(['config', 'get', 'temperature']);
+				expect(get.stdout).toBe(temperature);
+			});
+		});
+
+		await describe('details', ({ test }) => {
+			test('must be a boolean', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'details=maybe'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be a boolean/i);
+			});
+
+			test('accepts numeric boolean values', async () => {
+				await aicommits(['config', 'set', 'details=1']);
+
+				const get = await aicommits(['config', 'get', 'details']);
+				expect(get.stdout).toBe('details=true');
+			});
+		});
+
+		await describe('conventional customization', ({ test }) => {
+			test('validates conventional-types as JSON object', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'conventional-types=not-json'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be valid json/i);
+			});
+
+			test('stores conventional-format and conventional-types', async () => {
+				const format = 'conventional-format=<type>(<scope>): <subject>';
+				const customTypes = 'conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}';
+
+				await aicommits(['config', 'set', format, customTypes]);
+
+				const configFile = await fs.readFile(configPath, 'utf8');
+				expect(configFile).toMatch('conventional-format=<type>(<scope>): <subject>');
+				expect(configFile).toMatch('conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}');
+
+				const formatGet = await aicommits(['config', 'get', 'conventional-format']);
+				expect(formatGet.stdout).toBe(format);
+
+				const typesGet = await aicommits(['config', 'get', 'conventional-types']);
+				expect(typesGet.stdout).toBe('conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}');
+			});
+		});
+
+		await describe('style preset removal', ({ test }) => {
+			test('style is no longer a configurable option', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'style=github-copilot'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/invalid config property: style/i);
+			});
+		});
+
+		await describe('instructions', ({ test }) => {
+			test('supports values containing "="', async () => {
+				const instructions = 'instructions=Use detail=high and tone=neutral';
+				await aicommits(['config', 'set', instructions]);
+
+				const get = await aicommits(['config', 'get', 'instructions']);
+				expect(get.stdout).toBe(instructions);
+			});
+		});
+
 		await describe('max-length', ({ test }) => {
 			test('must be an integer', async () => {
 				const { stderr } = await aicommits(['config', 'set', 'max-length=abc'], {

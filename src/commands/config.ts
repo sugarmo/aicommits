@@ -3,6 +3,19 @@ import { red } from 'kolorist';
 import { hasOwn, getConfig, setConfigs } from '../utils/config.js';
 import { KnownError, handleCliError } from '../utils/error.js';
 
+const parseKeyValue = (keyValue: string): [string, string] => {
+	const index = keyValue.indexOf('=');
+
+	if (index <= 0) {
+		throw new KnownError(`Invalid config assignment: "${keyValue}". Use <key>=<value>.`);
+	}
+
+	return [
+		keyValue.slice(0, index),
+		keyValue.slice(index + 1),
+	];
+};
+
 export default command({
 	name: 'config',
 
@@ -23,7 +36,7 @@ export default command({
 
 		if (mode === 'set') {
 			await setConfigs(
-				keyValues.map(keyValue => keyValue.split('=') as [string, string]),
+				keyValues.map(parseKeyValue),
 			);
 			return;
 		}
