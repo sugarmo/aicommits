@@ -224,6 +224,18 @@ const configParsers = {
 	details(details?: unknown) {
 		return parseBoolean('details', details, false);
 	},
+	'details-style'(detailsStyle?: unknown) {
+		if (detailsStyle === undefined || detailsStyle === null || detailsStyle === '') {
+			return 'paragraph';
+		}
+
+		if (typeof detailsStyle !== 'string') {
+			throw new KnownError('Invalid config property details-style: Must be a string');
+		}
+		const normalized = detailsStyle.trim().toLowerCase();
+		parseAssert('details-style', ['paragraph', 'list'].includes(normalized), 'Must be one of: paragraph, list');
+		return normalized as 'paragraph' | 'list';
+	},
 	instructions(instructions?: unknown) {
 		if (instructions === undefined || instructions === null) {
 			return '';
@@ -253,6 +265,9 @@ const configParsers = {
 			throw new KnownError('Invalid config property conventional-types: Must be valid JSON');
 		}
 		return parseConventionalTypes(conventionalTypes);
+	},
+	'conventional-scope'(conventionalScope?: unknown) {
+		return parseBoolean('conventional-scope', conventionalScope, true);
 	},
 } as const;
 

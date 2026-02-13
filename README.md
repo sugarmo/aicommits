@@ -82,6 +82,12 @@ If you want both a commit title and body:
 aicommits --details
 ```
 
+If you prefer a bullet-list body style:
+
+```sh
+aicommits --details --details-style list
+```
+
 #### Default style
 
 The generator uses a GitHub Copilot-like style by default and prefers commit titles with a concrete file/class/module anchor so commit lists are easier to scan.
@@ -98,6 +104,12 @@ You can combine conventional commits with custom output format and type mapping:
 
 ```sh
 aicommits --type conventional --conventional-format "<type>(<scope>): <subject>" --conventional-types '{"feature":"Introduce a feature","bugfix":"Fix defects"}'
+```
+
+By default, conventional mode also prefers including scope (for example `refactor(RecentScrollshotController): ...`) when there is a clear dominant file/class/module. You can disable this behavior with:
+
+```sh
+aicommits --conventional-scope false
 ```
 
 ### Git hook
@@ -251,6 +263,18 @@ Set this to `true` to generate title and body:
 aicommits config set details=true
 ```
 
+#### details-style
+
+Default: `paragraph`
+
+Controls body formatting when `details=true`.
+
+Allowed values: `paragraph`, `list`
+
+```sh
+aicommits config set details-style=list
+```
+
 #### temperature
 
 Sampling temperature for AI generation.
@@ -291,6 +315,16 @@ Customize type descriptions with JSON:
 
 ```sh
 aicommits config set conventional-types='{"feature":"Introduce a feature","bugfix":"Fix defects"}'
+```
+
+#### conventional-scope
+
+Default: `true`
+
+When enabled, conventional commits strongly prefer `type(scope): subject` using the primary file/class/module as scope.
+
+```sh
+aicommits config set conventional-scope=true
 ```
 
 ## How it works

@@ -21,9 +21,11 @@ export default async (
 	commitType: string | undefined,
 	temperature: number | undefined,
 	includeDetails: boolean | undefined,
+	detailsStyle: string | undefined,
 	customInstructions: string | undefined,
 	conventionalFormat: string | undefined,
 	conventionalTypes: string | undefined,
+	conventionalScope: string | undefined,
 	rawArgv: string[],
 ) => (async () => {
 	intro(bgCyan(black(' aicommits ')));
@@ -55,16 +57,20 @@ export default async (
 		type: commitType?.toString(),
 		temperature: temperature === undefined ? undefined : temperature.toString(),
 		details: includeDetails === true ? 'true' : undefined,
+		'details-style': detailsStyle,
 		instructions: customInstructions,
 		'conventional-format': conventionalFormat,
 		'conventional-types': conventionalTypes,
+		'conventional-scope': conventionalScope,
 	});
 
 	const promptOptions = {
 		includeDetails: config.details,
+		detailsStyle: config['details-style'],
 		instructions: config.instructions,
 		conventionalFormat: config['conventional-format'],
 		conventionalTypes: config['conventional-types'],
+		conventionalScope: config['conventional-scope'],
 		changedFiles: staged.files,
 	};
 

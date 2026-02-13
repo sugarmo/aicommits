@@ -1,10 +1,14 @@
 import type { CommitType } from './config.js';
 
+export type DetailsStyle = 'paragraph' | 'list';
+
 export type PromptOptions = {
 	includeDetails?: boolean;
+	detailsStyle?: DetailsStyle;
 	instructions?: string;
 	conventionalFormat?: string;
 	conventionalTypes?: string;
+	conventionalScope?: boolean;
 	changedFiles?: string[];
 	lockedConventionalType?: string;
 };
@@ -119,9 +123,24 @@ const getCommitTypeInstruction = (
 
 const getDetailsInstruction = (
 	includeDetails: boolean,
+	detailsStyle: DetailsStyle,
 ) => {
 	if (!includeDetails) {
 		return 'Provide only the title, no description or body.';
+	}
+
+	if (detailsStyle === 'list') {
+		return [
+			'Provide both a title and a body.',
+			'Output format must be exactly:',
+			'<title>',
+			'',
+			'<body>',
+			'The body must be 3-6 concise bullet points.',
+			'Each bullet must start with "- ".',
+			'Do not use section labels like "Impact:", "Changes:", "Summary:", or markdown headings.',
+			'Each bullet should describe one concrete code-path change with real symbols from the diff.',
+		].join('\n');
 	}
 
 	return [
@@ -184,15 +203,24 @@ const getChangedFilesInstruction = (changedFiles?: string[]) => {
 
 const getAnchorRequirementInstruction = (
 	type: CommitType,
+	conventionalScope: boolean,
 ) => {
 	if (type === 'conventional') {
-		return [
+		const rules = [
 			'Title anchor requirement:',
 			'- The commit title must mention at least one concrete anchor from the diff (file, class/type, module, or subsystem).',
 			'- Prefer class/type/module/subsystem names over raw file paths when possible.',
-			'- If your chosen conventional format supports scope, prefer using the primary file/class/module as scope.',
 			'- Avoid titles that only mention function names without file/class context.',
-		].join('\n');
+		];
+
+		if (conventionalScope) {
+			rules.push('- For conventional commits, include scope using the primary file/class/module when possible (for example: refactor(RecentScrollshotController): ...).');
+			rules.push('- Only omit scope when there is no clear dominant anchor.');
+		} else {
+			rules.push('- Scope is optional; include it only when it clearly improves clarity.');
+		}
+
+		return rules.join('\n');
 	}
 
 	return [
@@ -215,6 +243,7 @@ const getConventionalSubjectInstruction = (
 		'- The subject text after "<type>(<scope>): " must not start with the same type word.',
 		'- Example to avoid: "refactor: refactor ...".',
 		'- For alphabetic languages (for example English), capitalize the first word in the subject.',
+		'- Run a final self-check before output: if subject starts with the selected type word, rewrite the subject.',
 	].join('\n');
 };
 
@@ -225,17 +254,19 @@ export const generatePrompt = (
 	options: PromptOptions = {},
 ) => {
 	const includeDetails = options.includeDetails ?? false;
+	const detailsStyle = options.detailsStyle ?? 'paragraph';
+	const conventionalScope = options.conventionalScope ?? true;
 
 	return [
 		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',
-		getDetailsInstruction(includeDetails),
+		getDetailsInstruction(includeDetails, detailsStyle),
 		getLanguageInstruction(locale),
 		`Commit title must be a maximum of ${maxLength} characters.`,
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',
 		`IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. The commit title must not exceed ${maxLength} characters. Respond with ONLY the commit message text.`,
 		'Be specific: include concrete details (package names, versions, functionality) rather than generic statements.',
 		getChangedFilesInstruction(options.changedFiles),
-		getAnchorRequirementInstruction(type),
+		getAnchorRequirementInstruction(type, conventionalScope),
 		getConventionalSubjectInstruction(type),
 		getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
 		specifyCommitFormat(type, options.conventionalFormat, includeDetails),

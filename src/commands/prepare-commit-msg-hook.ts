@@ -41,9 +41,11 @@ export default () => (async () => {
 	try {
 		const promptOptions = {
 			includeDetails: config.details,
+			detailsStyle: config['details-style'],
 			instructions: config.instructions,
 			conventionalFormat: config['conventional-format'],
 			conventionalTypes: config['conventional-types'],
+			conventionalScope: config['conventional-scope'],
 			changedFiles: staged.files,
 		};
 

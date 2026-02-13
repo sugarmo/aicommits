@@ -124,6 +124,23 @@ export default testSuite(({ describe }) => {
 			});
 		});
 
+		await describe('details-style', ({ test }) => {
+			test('must be paragraph or list', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'details-style=table'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be one of: paragraph, list/i);
+			});
+
+			test('stores list style', async () => {
+				await aicommits(['config', 'set', 'details-style=list']);
+
+				const get = await aicommits(['config', 'get', 'details-style']);
+				expect(get.stdout).toBe('details-style=list');
+			});
+		});
+
 		await describe('conventional customization', ({ test }) => {
 			test('validates conventional-types as JSON object', async () => {
 				const { stderr } = await aicommits(['config', 'set', 'conventional-types=not-json'], {
@@ -148,6 +165,15 @@ export default testSuite(({ describe }) => {
 
 				const typesGet = await aicommits(['config', 'get', 'conventional-types']);
 				expect(typesGet.stdout).toBe('conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}');
+			});
+		});
+
+		await describe('conventional-scope', ({ test }) => {
+			test('accepts boolean and can be disabled', async () => {
+				await aicommits(['config', 'set', 'conventional-scope=false']);
+
+				const get = await aicommits(['config', 'get', 'conventional-scope']);
+				expect(get.stdout).toBe('conventional-scope=false');
 			});
 		});
 

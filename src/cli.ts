@@ -49,6 +49,10 @@ cli(
 				type: Boolean,
 				description: 'Generate commit message details/body in addition to the title',
 			},
+			detailsStyle: {
+				type: String,
+				description: 'Body style when --details is enabled: paragraph or list',
+			},
 			instructions: {
 				type: String,
 				description: 'Additional custom prompt instructions (tone, detail level, wording, etc.)',
@@ -60,6 +64,10 @@ cli(
 			conventionalTypes: {
 				type: String,
 				description: 'Custom conventional commit type map as JSON (works with --type conventional)',
+			},
+			conventionalScope: {
+				type: String,
+				description: 'Conventional scope preference: true or false (default: true)',
 			},
 			version: {
 				type: Boolean,
@@ -95,9 +103,11 @@ cli(
 				argv.flags.type,
 				argv.flags.temperature,
 				argv.flags.details,
+				argv.flags.detailsStyle,
 				argv.flags.instructions,
 				argv.flags.conventionalFormat,
 				argv.flags.conventionalTypes,
+				argv.flags.conventionalScope,
 				rawArgv,
 			);
 		}

@@ -46,6 +46,16 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('Do not use section labels like "Impact:"');
 		});
 
+		test('supports list detail style', () => {
+			const prompt = generatePrompt('en', 72, 'conventional', {
+				includeDetails: true,
+				detailsStyle: 'list',
+			});
+
+			expect(prompt).toMatch('The body must be 3-6 concise bullet points.');
+			expect(prompt).toMatch('Each bullet must start with "- ".');
+		});
+
 		test('injects changed files and anchor requirement', () => {
 			const prompt = generatePrompt('en', 72, 'conventional', {
 				changedFiles: [
@@ -58,6 +68,15 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('RecentScrollshotController.swift');
 			expect(prompt).toMatch('Title anchor requirement:');
 			expect(prompt).toMatch('must mention at least one concrete anchor');
+			expect(prompt).toMatch('include scope using the primary file/class/module');
+		});
+
+		test('supports disabling conventional scope emphasis', () => {
+			const prompt = generatePrompt('en', 72, 'conventional', {
+				conventionalScope: false,
+			});
+
+			expect(prompt).toMatch('Scope is optional; include it only when it clearly improves clarity.');
 		});
 
 		test('enforces message language strictly', () => {

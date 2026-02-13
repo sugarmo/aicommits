@@ -7,7 +7,12 @@ import {
 import createHttpsProxyAgent from 'https-proxy-agent';
 import { KnownError } from './error.js';
 import type { CommitType } from './config.js';
-import { generatePrompt, parseConventionalTypes, type PromptOptions } from './prompt.js';
+import {
+	generatePrompt,
+	parseConventionalTypes,
+	type DetailsStyle,
+	type PromptOptions,
+} from './prompt.js';
 
 const httpsPost = async (
 	hostname: string,
@@ -126,9 +131,17 @@ const stripBodyLabels = (text: string) => text
 	.replace(/^\s*(主要改动包括|主要改动|改动包括)\s*[:：]\s*/i, '')
 	.replace(/^\s*(impact|影响)\s*[:：]\s*/i, '');
 
+const splitListFragments = (line: string) => line
+	.split(/(?<=[。！？.!?])\s+/u)
+	.map(fragment => fragment.trim())
+	.filter(Boolean);
+
 const normalizeDetailedBody = (body: string) => {
 	if (!body.trim()) {
-		return '';
+		return {
+			paragraph: '',
+			listItems: [] as string[],
+		};
 	}
 
 	const lines = body
@@ -137,31 +150,44 @@ const normalizeDetailedBody = (body: string) => {
 		.filter(Boolean);
 
 	if (lines.length === 0) {
-		return '';
+		return {
+			paragraph: '',
+			listItems: [] as string[],
+		};
 	}
 
-	const bulletLines: string[] = [];
+	const listItems: string[] = [];
 	const proseLines: string[] = [];
 
 	for (const line of lines) {
 		const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
 		if (bullet?.[1]) {
-			bulletLines.push(bullet[1].trim());
+			listItems.push(bullet[1].trim());
 		} else {
 			proseLines.push(line.trim());
+			listItems.push(...splitListFragments(line));
 		}
 	}
 
-	const normalized = [
+	const paragraph = [
 		...proseLines,
-		...bulletLines,
+		...listItems,
 	]
 		.join(' ')
 		.replace(/\s{2,}/g, ' ')
 		.replace(/\s+([,.;:!?])/g, '$1')
 		.trim();
 
-	return normalized;
+	const dedupedListItems = Array.from(new Set(
+		listItems
+			.map(item => item.trim())
+			.filter(Boolean),
+	));
+
+	return {
+		paragraph,
+		listItems: dedupedListItems,
+	};
 };
 
 const splitCommitMessage = (message: string) => {
@@ -211,20 +237,33 @@ const sanitizeSimpleMessage = (message: string) => sanitizeTitle(
 		.split('\n')[0] || '',
 );
 
-const sanitizeDetailedMessage = (message: string) => {
+const sanitizeDetailedMessage = (
+	message: string,
+	detailsStyle: DetailsStyle,
+) => {
 	const cleaned = stripCodeFences(message);
 	const { title, body } = splitCommitMessage(cleaned);
 	const normalizedBody = normalizeDetailedBody(body);
 
-	return formatCommitMessage(title, normalizedBody);
+	if (detailsStyle === 'list') {
+		const bodyAsList = normalizedBody.listItems
+			.slice(0, 6)
+			.map(item => `- ${item}`)
+			.join('\n');
+
+		return formatCommitMessage(title, bodyAsList);
+	}
+
+	return formatCommitMessage(title, normalizedBody.paragraph);
 };
 
 const sanitizeMessage = (
 	message: string,
 	includeDetails: boolean,
+	detailsStyle: DetailsStyle,
 ) => {
 	if (includeDetails) {
-		return sanitizeDetailedMessage(message);
+		return sanitizeDetailedMessage(message, detailsStyle);
 	}
 
 	return sanitizeSimpleMessage(message);
@@ -684,6 +723,32 @@ const splitConventionalTitle = (title: string) => {
 	};
 };
 
+const conventionalScopedTitlePattern = /^([a-z]+)\(([^)\s][^)]*)\):\s*\S/i;
+
+const getMessageTitle = (
+	message: string,
+	includeDetails: boolean,
+) => (
+	includeDetails
+		? splitCommitMessage(message).title
+		: message.trim()
+);
+
+const supportsConventionalScope = (
+	conventionalFormat: string | undefined,
+) => {
+	if (!conventionalFormat?.trim()) {
+		return true;
+	}
+
+	return /<\s*scope\s*>/i.test(conventionalFormat);
+};
+
+const hasConventionalScope = (
+	message: string,
+	includeDetails: boolean,
+) => conventionalScopedTitlePattern.test(getMessageTitle(message, includeDetails));
+
 const shouldRewriteTitleToLocale = (
 	title: string,
 	locale: string,
@@ -826,6 +891,12 @@ export const generateCommitMessage = async (
 	temperature?: number,
 ) => {
 	const includeDetails = options.includeDetails ?? false;
+	const detailsStyle: DetailsStyle = options.detailsStyle ?? 'paragraph';
+	const enforceConventionalScope = (
+		type === 'conventional'
+		&& (options.conventionalScope ?? true)
+		&& supportsConventionalScope(options.conventionalFormat)
+	);
 	let lockedConventionalType: string | undefined;
 
 	if (type === 'conventional') {
@@ -847,40 +918,52 @@ export const generateCommitMessage = async (
 		}
 	}
 
-	const promptOptions: PromptOptions = {
-		includeDetails: options.includeDetails,
-		instructions: options.instructions,
-		conventionalFormat: options.conventionalFormat,
-		conventionalTypes: options.conventionalTypes,
-		changedFiles: options.changedFiles,
-		lockedConventionalType,
-	};
+	const requestMessages = async (
+		extraInstructions?: string,
+		includeUserInstructions = true,
+	) => {
+		const mergedInstructions = [
+			includeUserInstructions ? options.instructions?.trim() : '',
+			extraInstructions?.trim(),
+		]
+			.filter(Boolean)
+			.join('\n');
 
-	const request: CreateChatCompletionRequest = {
-		model,
-		messages: [
-			{
-				role: 'system',
-				content: generatePrompt(locale, maxLength, type, promptOptions),
-			},
-			{
-				role: 'user',
-				content: diff,
-			},
-		],
-		top_p: 1,
-		frequency_penalty: 0,
-		presence_penalty: 0,
-		max_tokens: includeDetails ? 420 : 200,
-		stream: false,
-		n: completions,
-	};
+		const promptOptions: PromptOptions = {
+			includeDetails: options.includeDetails,
+			detailsStyle: options.detailsStyle,
+			instructions: mergedInstructions,
+			conventionalFormat: options.conventionalFormat,
+			conventionalTypes: options.conventionalTypes,
+			conventionalScope: options.conventionalScope,
+			changedFiles: options.changedFiles,
+			lockedConventionalType,
+		};
 
-	if (temperature !== undefined) {
-		request.temperature = temperature;
-	}
+		const request: CreateChatCompletionRequest = {
+			model,
+			messages: [
+				{
+					role: 'system',
+					content: generatePrompt(locale, maxLength, type, promptOptions),
+				},
+				{
+					role: 'user',
+					content: diff,
+				},
+			],
+			top_p: 1,
+			frequency_penalty: 0,
+			presence_penalty: 0,
+			max_tokens: includeDetails ? 420 : 200,
+			stream: false,
+			n: completions,
+		};
 
-	try {
+		if (temperature !== undefined) {
+			request.temperature = temperature;
+		}
+
 		const completion = await createChatCompletion(
 			apiKey,
 			request,
@@ -895,7 +978,7 @@ export const generateCommitMessage = async (
 					return [];
 				}
 
-				return [sanitizeMessage(content, includeDetails)];
+				return [sanitizeMessage(content, includeDetails, detailsStyle)];
 			})
 			.filter(Boolean);
 
@@ -917,6 +1000,35 @@ export const generateCommitMessage = async (
 			localizedMessages
 				.filter(Boolean),
 		);
+	};
+
+	try {
+		const firstPassMessages = await requestMessages();
+		if (!enforceConventionalScope) {
+			return firstPassMessages;
+		}
+
+		const firstPassScopedMessages = firstPassMessages
+			.filter(message => hasConventionalScope(message, includeDetails));
+		if (firstPassScopedMessages.length > 0) {
+			return firstPassScopedMessages;
+		}
+
+		const secondPassMessages = await requestMessages(
+			[
+				'Hard requirement for this run: use conventional title with non-empty scope exactly in "<type>(<scope>): <subject>" format.',
+				'Do not omit scope. Pick the strongest file/class/module anchor as scope.',
+			].join('\n'),
+			false,
+		);
+		const secondPassScopedMessages = secondPassMessages
+			.filter(message => hasConventionalScope(message, includeDetails));
+
+		if (secondPassScopedMessages.length > 0) {
+			return secondPassScopedMessages;
+		}
+
+		return secondPassMessages;
 	} catch (error) {
 		const errorAsAny = error as any;
 		if (errorAsAny.code === 'ENOTFOUND') {
