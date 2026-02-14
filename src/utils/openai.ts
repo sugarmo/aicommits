@@ -136,6 +136,31 @@ const splitListFragments = (line: string) => line
 	.map(fragment => fragment.trim())
 	.filter(Boolean);
 
+const listMarkerPattern = /^(?:[-*•]+|\d+[.)])\s*/u;
+const noiseOnlyPattern = /^[\s\-–—_*•.,;:!?()[\]{}"'`]+$/u;
+
+const normalizeListItem = (item: string) => {
+	let normalized = item.trim();
+	if (!normalized) {
+		return '';
+	}
+
+	// Remove nested markers like "- - actual text" or "1. - text".
+	while (listMarkerPattern.test(normalized)) {
+		const next = normalized.replace(listMarkerPattern, '').trim();
+		if (!next || next === normalized) {
+			break;
+		}
+		normalized = next;
+	}
+
+	if (!normalized || noiseOnlyPattern.test(normalized)) {
+		return '';
+	}
+
+	return normalized;
+};
+
 const normalizeDetailedBody = (body: string) => {
 	if (!body.trim()) {
 		return {
@@ -180,7 +205,7 @@ const normalizeDetailedBody = (body: string) => {
 
 	const dedupedListItems = Array.from(new Set(
 		listItems
-			.map(item => item.trim())
+			.map(normalizeListItem)
 			.filter(Boolean),
 	));
 
