@@ -222,6 +222,12 @@ Default: `gpt-3.5-turbo`
 
 The Chat Completions (`/v1/chat/completions`) model to use. Consult the list of models available in the [OpenAI Documentation](https://platform.openai.com/docs/models/model-endpoint-compatibility).
 
+You can also override it per-run with environment variables:
+
+```sh
+OPENAI_MODEL=gpt-4o-mini aicommits
+```
+
 > Tip: If you have access, try upgrading to [`gpt-4`](https://platform.openai.com/docs/models/gpt-4) for next-level code analysis. It can handle double the input size, but comes at a higher cost. Check out OpenAI's website to learn more.
 
 

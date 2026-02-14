@@ -32,6 +32,8 @@ export default () => (async () => {
 
 	const { env } = process;
 	const config = await getConfig({
+		OPENAI_KEY: env.OPENAI_KEY || env.OPENAI_API_KEY,
+		model: env.OPENAI_MODEL || env.OPENAI_API_MODEL,
 		proxy: env.https_proxy || env.HTTPS_PROXY || env.http_proxy || env.HTTP_PROXY,
 	});
 
