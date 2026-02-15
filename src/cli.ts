@@ -41,13 +41,13 @@ cli(
 				description: 'Git commit message format (default: plain). Supports conventional',
 				alias: 't',
 			},
-			temperature: {
-				type: Number,
-				description: 'Sampling temperature for text generation (range: 0 to 2)',
-			},
 			details: {
 				type: Boolean,
 				description: 'Generate commit message details/body in addition to the title',
+			},
+			showReasoning: {
+				type: Boolean,
+				description: 'Stream and print model reasoning while generating messages',
 			},
 			detailsStyle: {
 				type: String,
@@ -68,6 +68,10 @@ cli(
 			conventionalScope: {
 				type: String,
 				description: 'Conventional scope preference: true or false (default: true)',
+			},
+			baseUrl: {
+				type: String,
+				description: 'API base URL for chat completions (for example https://api.openai.com/v1)',
 			},
 			version: {
 				type: Boolean,
@@ -101,13 +105,14 @@ cli(
 				argv.flags.exclude,
 				argv.flags.all,
 				argv.flags.type,
-				argv.flags.temperature,
 				argv.flags.details,
+				argv.flags.showReasoning,
 				argv.flags.detailsStyle,
 				argv.flags.instructions,
 				argv.flags.conventionalFormat,
 				argv.flags.conventionalTypes,
 				argv.flags.conventionalScope,
+				argv.flags.baseUrl,
 				rawArgv,
 			);
 		}

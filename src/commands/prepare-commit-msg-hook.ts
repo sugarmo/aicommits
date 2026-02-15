@@ -1,16 +1,45 @@
 import fs from 'fs/promises';
 import {
-	intro, outro, spinner,
+	intro, outro,
 } from '@clack/prompts';
 import {
-	black, green, red, bgCyan,
+	black, dim, green, red, bgCyan,
 } from 'kolorist';
 import { getStagedDiff } from '../utils/git.js';
 import { getConfig } from '../utils/config.js';
-import { generateCommitMessage } from '../utils/openai.js';
+import { generateCommitMessage, type CommitMessageStreamEvent } from '../utils/openai.js';
+import { createAnimatedStatusSpinner, type AnimatedStatusSpinner } from '../utils/animated-status-spinner.js';
 import { KnownError, handleCliError } from '../utils/error.js';
 
 const [messageFilePath, commitSource] = process.argv.slice(2);
+
+const formatThinkingDuration = (elapsedMs: number) => {
+	const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+
+	if (hours > 0) {
+		return `${hours}h ${minutes}m ${seconds}s`;
+	}
+
+	if (minutes > 0) {
+		return `${minutes}m ${seconds}s`;
+	}
+
+	return `${seconds}s`;
+};
+
+const createThinkingTicker = (spinner: AnimatedStatusSpinner, model: string) => {
+	const startedAt = Date.now();
+	const intervalMs = 1_000;
+
+	const render = () => spinner.update(`Thinking for ${formatThinkingDuration(Date.now() - startedAt)} (${model})`);
+	render();
+	const intervalId = setInterval(render, intervalMs);
+
+	return () => clearInterval(intervalId);
+};
 
 export default () => (async () => {
 	if (!messageFilePath) {
@@ -30,15 +59,52 @@ export default () => (async () => {
 
 	intro(bgCyan(black(' aicommits ')));
 
-	const { env } = process;
 	const config = await getConfig({
-		OPENAI_KEY: env.OPENAI_KEY || env.OPENAI_API_KEY,
-		model: env.OPENAI_MODEL || env.OPENAI_API_MODEL,
-		proxy: env.https_proxy || env.HTTPS_PROXY || env.http_proxy || env.HTTP_PROXY,
 	});
 
-	const s = spinner();
-	s.start('The AI is analyzing your changes');
+	const showReasoningStream = config['show-reasoning'] === true;
+	const s = createAnimatedStatusSpinner();
+	s.start(`The AI (${config.model}) is analyzing your changes`);
+	let stopThinkingTicker: (() => void) | undefined;
+	let thinkingTickerStarted = false;
+	let spinnerOpen = true;
+	let reasoningStarted = false;
+	let activeReasoningPhase: CommitMessageStreamEvent['phase'] | undefined;
+	const phaseLabels: Record<CommitMessageStreamEvent['phase'], string> = {
+		message: 'Message Generation',
+		'title-rewrite': 'Title Rewrite',
+	};
+	const handleStreamEvent = (event: CommitMessageStreamEvent) => {
+		if (event.kind !== 'reasoning' || !event.text) {
+			return;
+		}
+
+		if (!showReasoningStream) {
+			if (!thinkingTickerStarted) {
+				stopThinkingTicker = createThinkingTicker(s, config.model);
+				thinkingTickerStarted = true;
+			}
+			return;
+		}
+
+		if (spinnerOpen) {
+			s.stop(`Streaming reasoning from ${config.model}`);
+			spinnerOpen = false;
+		}
+
+		if (!reasoningStarted) {
+			process.stdout.write(`${dim(`\nReasoning stream (${config.model})`)}\n`);
+			reasoningStarted = true;
+		}
+
+		if (event.phase !== activeReasoningPhase) {
+			activeReasoningPhase = event.phase;
+			process.stdout.write(`${dim(`[${phaseLabels[event.phase]}]\n`)}`);
+		}
+
+		process.stdout.write(event.text);
+	};
+
 	let messages: string[];
 	try {
 		const promptOptions = {
@@ -52,7 +118,7 @@ export default () => (async () => {
 		};
 
 		messages = await generateCommitMessage(
-			config.OPENAI_KEY,
+			config['api-key'],
 			config.model,
 			config.locale,
 			staged!.diff,
@@ -61,11 +127,19 @@ export default () => (async () => {
 			config.type,
 			config.timeout,
 			config.proxy,
-			promptOptions,
-			config.temperature,
+			{
+				...promptOptions,
+				onStreamEvent: handleStreamEvent,
+			},
+			config['base-url'],
 		);
 	} finally {
-		s.stop('Changes analyzed');
+		stopThinkingTicker?.();
+		if (spinnerOpen) {
+			s.stop('Changes analyzed');
+		} else if (showReasoningStream) {
+			process.stdout.write('\n');
+		}
 	}
 
 	/**
