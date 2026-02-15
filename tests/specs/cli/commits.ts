@@ -63,7 +63,7 @@ export default testSuite(({ describe }) => {
 		test('Generated commit message must be under 20 characters', async () => {
 			const { fixture, aicommits } = await createFixture({
 				...files,
-				'.aicommits': `${files['.aicommits']}\nmax-length=20`,
+				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\nmax-length = 20`,
 			});
 
 			const git = await createGit(fixture.path);
@@ -102,7 +102,7 @@ export default testSuite(({ describe }) => {
 			await fixture.writeFile('data.json', 'Test');
 
 			const statusBefore = await git('status', ['--short']);
-			expect(statusBefore.stdout).toBe(' M data.json\n?? .aicommits');
+			expect(statusBefore.stdout).toBe(' M data.json\n?? .aicommits/');
 
 			const committing = aicommits(['--all']);
 			committing.stdout!.on('data', (buffer: Buffer) => {
@@ -116,7 +116,7 @@ export default testSuite(({ describe }) => {
 			await committing;
 
 			const statusAfter = await git('status', ['--short']);
-			expect(statusAfter.stdout).toBe('?? .aicommits');
+			expect(statusAfter.stdout).toBe('?? .aicommits/');
 
 			const { stdout: commitMessage } = await git('log', ['-n1', '--pretty=format:%s']);
 			console.log({
@@ -131,7 +131,7 @@ export default testSuite(({ describe }) => {
 		test('Accepts --generate flag, overriding config', async ({ onTestFail }) => {
 			const { fixture, aicommits } = await createFixture({
 				...files,
-				'.aicommits': `${files['.aicommits']}\ngenerate=4`,
+				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ngenerate = 4`,
 			});
 			const git = await createGit(fixture.path);
 
@@ -177,7 +177,7 @@ export default testSuite(({ describe }) => {
 
 			const { fixture, aicommits } = await createFixture({
 				...files,
-				'.aicommits': `${files['.aicommits']}\nlocale=ja`,
+				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\nlocale = "ja"`,
 			});
 			const git = await createGit(fixture.path);
 
@@ -245,7 +245,7 @@ export default testSuite(({ describe }) => {
 				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
-					'.aicommits': `${files['.aicommits']}\ntype=conventional`,
+					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntype = "conventional"`,
 				});
 				const git = await createGit(fixture.path);
 
@@ -277,7 +277,7 @@ export default testSuite(({ describe }) => {
 				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
-					'.aicommits': `${files['.aicommits']}\ntype=other`,
+					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntype = "other"`,
 				});
 				const git = await createGit(fixture.path);
 
@@ -312,7 +312,7 @@ export default testSuite(({ describe }) => {
 				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
-					'.aicommits': `${files['.aicommits']}\ntype=conventional`,
+					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntype = "conventional"`,
 				});
 				const git = await createGit(fixture.path);
 
@@ -347,7 +347,7 @@ export default testSuite(({ describe }) => {
 			test('Fails on invalid proxy', async () => {
 				const { fixture, aicommits } = await createFixture({
 					...files,
-					'.aicommits': `${files['.aicommits']}\nproxy=http://localhost:1234`,
+					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\nproxy = "http://localhost:1234"`,
 				});
 				const git = await createGit(fixture.path);
 
@@ -376,7 +376,7 @@ export default testSuite(({ describe }) => {
 			test('Connects with config', async () => {
 				const { fixture, aicommits } = await createFixture({
 					...files,
-					'.aicommits': `${files['.aicommits']}\nproxy=http://localhost:8888`,
+					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\nproxy = "http://localhost:8888"`,
 				});
 				const git = await createGit(fixture.path);
 

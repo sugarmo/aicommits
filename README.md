@@ -20,17 +20,17 @@
     npm install -g aicommits
     ```
 
-2. Retrieve your API key from [OpenAI](https://platform.openai.com/account/api-keys)
+2. Retrieve your API key from your API provider
 
     > Note: If you haven't already, you'll have to create an account and set up billing.
 
 3. Set the key so aicommits can use it:
 
     ```sh
-    aicommits config set OPENAI_KEY=<your token>
+    aicommits config set api-key=<your token>
     ```
 
-    This will create a `.aicommits` file in your home directory.
+    This will create `~/.aicommits/config.toml`.
 
 
 ### Upgrading
@@ -146,6 +146,10 @@ aicommits hook uninstall
 
 ## Configuration
 
+Runtime configuration is read from `~/.aicommits/config.toml` (and CLI flags). Environment variables are not used as config inputs.
+
+The file format is TOML.
+
 ### Reading a configuration value
 To retrieve a configuration option, use the command:
 
@@ -155,13 +159,13 @@ aicommits config get <key>
 
 For example, to retrieve the API key, you can use:
 ```sh
-aicommits config get OPENAI_KEY
+aicommits config get api-key
 ```
 
 You can also retrieve multiple configuration options at once by separating them with spaces:
 
 ```sh
-aicommits config get OPENAI_KEY generate
+aicommits config get api-key generate
 ```
 
 ### Setting a configuration value
@@ -175,21 +179,54 @@ aicommits config set <key>=<value>
 For example, to set the API key, you can use:
 
 ```sh
-aicommits config set OPENAI_KEY=<your-api-key>
+aicommits config set api-key=<your-api-key>
 ```
 
 You can also set multiple configuration options at once by separating them with spaces, like
 
 ```sh
-aicommits config set OPENAI_KEY=<your-api-key> generate=3 locale=en
+aicommits config set api-key=<your-api-key> generate=3 locale=en
 ```
 
 ### Options
-#### OPENAI_KEY
+#### api-key
 
 Required
 
-The OpenAI API key. You can retrieve it from [OpenAI API Keys page](https://platform.openai.com/account/api-keys).
+API key for your chat completions provider.
+
+#### base-url
+
+Required
+
+Base URL used for chat completions requests.
+
+```sh
+aicommits config set base-url=https://api.openai.com/v1
+```
+
+#### profile
+
+Default: empty
+
+Selects a named profile from the `profiles` table in `config.toml`.
+When a profile is selected, profile values override top-level values.
+
+```sh
+aicommits config set profile=openai
+```
+
+Example:
+
+```toml
+api-key = "top-level-key"
+model = "gpt-4o-mini"
+profile = "openai"
+
+[profiles.openai]
+model = "gpt-5.2-codex"
+base-url = "https://api.example.com/v1"
+```
 
 #### locale
 Default: `en`
@@ -220,19 +257,11 @@ aicommits config set proxy=
 
 Default: `gpt-3.5-turbo`
 
-The Chat Completions (`/v1/chat/completions`) model to use. Consult the list of models available in the [OpenAI Documentation](https://platform.openai.com/docs/models/model-endpoint-compatibility).
-
-You can also override it per-run with environment variables:
-
-```sh
-OPENAI_MODEL=gpt-4o-mini aicommits
-```
-
-> Tip: If you have access, try upgrading to [`gpt-4`](https://platform.openai.com/docs/models/gpt-4) for next-level code analysis. It can handle double the input size, but comes at a higher cost. Check out OpenAI's website to learn more.
+The Chat Completions (`/v1/chat/completions`) model to use.
 
 
 #### timeout
-The timeout for network requests to the OpenAI API in milliseconds.
+The timeout for network requests to the API in milliseconds.
 
 Default: `10000` (10 seconds)
 
@@ -281,17 +310,23 @@ Allowed values: `paragraph`, `list`
 aicommits config set details-style=list
 ```
 
-#### temperature
+#### show-reasoning
 
-Sampling temperature for AI generation.
+Default: `false`
 
-Valid range: `0` to `2`
+By default, aicommits shows normal analyzing progress.  
+If the model emits reasoning tokens, it switches to elapsed thinking time (for example `Thinking for 1m 12s`).
+Enable this option to print full streamed model reasoning (debug mode):
 
 ```sh
-aicommits config set temperature=1
+aicommits config set show-reasoning=true
 ```
 
-If unset, the model/provider default is used.
+Or enable for a single run:
+
+```sh
+aicommits --show-reasoning
+```
 
 #### instructions
 
@@ -335,7 +370,7 @@ aicommits config set conventional-scope=true
 
 ## How it works
 
-This CLI tool runs `git diff` to grab all your latest code changes, sends them to OpenAI's GPT-3, then returns the AI generated commit message.
+This CLI tool runs `git diff` to grab your latest code changes, sends them to your configured chat completions API, then returns the generated commit message.
 
 Video coming soon where I rebuild it from scratch to show you how to easily build your own CLI tools powered by AI.
 

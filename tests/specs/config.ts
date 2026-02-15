@@ -1,13 +1,13 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { testSuite, expect } from 'manten';
-import { createFixture } from '../utils.js';
+import { createFixture, createGit } from '../utils.js';
 
 export default testSuite(({ describe }) => {
 	describe('config', async ({ test, describe }) => {
 		const { fixture, aicommits } = await createFixture();
-		const configPath = path.join(fixture.path, '.aicommits');
-		const openAiToken = 'OPENAI_KEY=sk-abc';
+		const configPath = path.join(fixture.path, '.aicommits', 'config.toml');
+		const apiToken = 'api-key=test-token';
 
 		test('set unknown config file', async () => {
 			const { stderr } = await aicommits(['config', 'set', 'UNKNOWN=1'], {
@@ -17,28 +17,28 @@ export default testSuite(({ describe }) => {
 			expect(stderr).toMatch('Invalid config property: UNKNOWN');
 		});
 
-		test('set invalid OPENAI_KEY', async () => {
-			const { stderr } = await aicommits(['config', 'set', 'OPENAI_KEY=abc'], {
+		test('set empty api-key', async () => {
+			const { stderr } = await aicommits(['config', 'set', 'api-key='], {
 				reject: false,
 			});
 
-			expect(stderr).toMatch('Invalid config property OPENAI_KEY: Must start with "sk-"');
+			expect(stderr).toMatch('Please set your API key via `aicommits config set api-key=<your token>`');
 		});
 
 		await test('set config file', async () => {
-			await aicommits(['config', 'set', openAiToken]);
+			await aicommits(['config', 'set', apiToken]);
 
 			const configFile = await fs.readFile(configPath, 'utf8');
-			expect(configFile).toMatch(openAiToken);
+			expect(configFile).toMatch(/api-key\s*=\s*"test-token"/);
 		});
 
 		await test('get config file', async () => {
-			const { stdout } = await aicommits(['config', 'get', 'OPENAI_KEY']);
-			expect(stdout).toBe(openAiToken);
+			const { stdout } = await aicommits(['config', 'get', 'api-key']);
+			expect(stdout).toBe(apiToken);
 		});
 
 		await test('reading unknown config', async () => {
-			await fs.appendFile(configPath, 'UNKNOWN=1');
+			await fs.appendFile(configPath, '\nUNKNOWN = 1\n');
 
 			const { stdout, stderr } = await aicommits(['config', 'get', 'UNKNOWN'], {
 				reject: false,
@@ -62,10 +62,64 @@ export default testSuite(({ describe }) => {
 				await aicommits(['config', 'set', timeout]);
 
 				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(timeout);
+				expect(configFile).toMatch(/timeout\s*=\s*20000/);
 
 				const get = await aicommits(['config', 'get', 'timeout']);
 				expect(get.stdout).toBe(timeout);
+			});
+		});
+
+		await describe('base-url', ({ test }) => {
+			test('setting invalid base-url config', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'base-url=example'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch('Invalid config property base-url: Must be a valid URL');
+			});
+
+			test('setting valid base-url config', async () => {
+				const baseUrl = 'base-url=https://api.example.com/v1';
+				await aicommits(['config', 'set', baseUrl]);
+
+				const configFile = await fs.readFile(configPath, 'utf8');
+				expect(configFile).toMatch(/base-url\s*=\s*"https:\/\/api\.example\.com\/v1"/);
+
+				const get = await aicommits(['config', 'get', 'base-url']);
+				expect(get.stdout).toBe(baseUrl);
+			});
+		});
+
+		await describe('profile', ({ test }) => {
+			test('supports setting profile name', async () => {
+				await aicommits(['config', 'set', 'profile=openai']);
+
+				const get = await aicommits(['config', 'get', 'profile']);
+				expect(get.stdout).toBe('profile=openai');
+			});
+
+			test('profile values override top-level values', async () => {
+				await fs.writeFile(
+					configPath,
+					[
+						'api-key = "top-level-key"',
+						'model = "top-level-model"',
+						'base-url = "https://api.top-level.example/v1"',
+						'profile = "openai"',
+						'',
+						'[profiles.openai]',
+						'model = "profile-model"',
+						'base-url = "https://api.profile.example/v1"',
+						'',
+					].join('\n'),
+					'utf8',
+				);
+
+				const modelGet = await aicommits(['config', 'get', 'model']);
+				expect(modelGet.stdout).toBe('model=profile-model');
+
+				const baseUrlGet = await aicommits(['config', 'get', 'base-url']);
+				expect(baseUrlGet.stdout).toBe('base-url=https://api.profile.example/v1');
 			});
 		});
 
@@ -75,35 +129,6 @@ export default testSuite(({ describe }) => {
 
 				const get = await aicommits(['config', 'get', 'locale']);
 				expect(get.stdout).toBe('locale=zh-CN');
-			});
-		});
-
-		await describe('temperature', ({ test }) => {
-			test('must be a number', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'temperature=abc'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch('Must be a number');
-			});
-
-			test('must be in range 0..2', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'temperature=2.1'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/less or equal to 2/i);
-			});
-
-			test('updates config', async () => {
-				const temperature = 'temperature=1';
-				await aicommits(['config', 'set', temperature]);
-
-				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(temperature);
-
-				const get = await aicommits(['config', 'get', 'temperature']);
-				expect(get.stdout).toBe(temperature);
 			});
 		});
 
@@ -121,6 +146,28 @@ export default testSuite(({ describe }) => {
 
 				const get = await aicommits(['config', 'get', 'details']);
 				expect(get.stdout).toBe('details=true');
+			});
+		});
+
+		await describe('show-reasoning', ({ test }) => {
+			test('defaults to false', async () => {
+				const get = await aicommits(['config', 'get', 'show-reasoning']);
+				expect(get.stdout).toBe('show-reasoning=false');
+			});
+
+			test('must be a boolean', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'show-reasoning=maybe'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be a boolean/i);
+			});
+
+			test('can be enabled', async () => {
+				await aicommits(['config', 'set', 'show-reasoning=true']);
+
+				const get = await aicommits(['config', 'get', 'show-reasoning']);
+				expect(get.stdout).toBe('show-reasoning=true');
 			});
 		});
 
@@ -157,8 +204,8 @@ export default testSuite(({ describe }) => {
 				await aicommits(['config', 'set', format, customTypes]);
 
 				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch('conventional-format=<type>(<scope>): <subject>');
-				expect(configFile).toMatch('conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}');
+				expect(configFile).toMatch(/conventional-format\s*=\s*"<type>\(<scope>\): <subject>"/);
+				expect(configFile).toMatch(/conventional-types\s*=\s*".*feature.*bugfix.*"/);
 
 				const formatGet = await aicommits(['config', 'get', 'conventional-format']);
 				expect(formatGet.stdout).toBe(format);
@@ -222,7 +269,7 @@ export default testSuite(({ describe }) => {
 				await aicommits(['config', 'set', maxLength]);
 
 				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(maxLength);
+				expect(configFile).toMatch(/max-length\s*=\s*60/);
 
 				const get = await aicommits(['config', 'get', 'max-length']);
 				expect(get.stdout).toBe(maxLength);
@@ -230,15 +277,34 @@ export default testSuite(({ describe }) => {
 		});
 
 		await test('set config file', async () => {
-			await aicommits(['config', 'set', openAiToken]);
+			await aicommits(['config', 'set', apiToken]);
 
 			const configFile = await fs.readFile(configPath, 'utf8');
-			expect(configFile).toMatch(openAiToken);
+			expect(configFile).toMatch(/api-key\s*=\s*"test-token"/);
 		});
 
 		await test('get config file', async () => {
-			const { stdout } = await aicommits(['config', 'get', 'OPENAI_KEY']);
-			expect(stdout).toBe(openAiToken);
+			const { stdout } = await aicommits(['config', 'get', 'api-key']);
+			expect(stdout).toBe(apiToken);
+		});
+
+		await test('missing base-url fails when running aicommits', async () => {
+			const { fixture: runtimeFixture, aicommits: runtimeAicommits } = await createFixture({
+				'.aicommits/config.toml': 'api-key = "test-token"',
+				'data.json': '1. lorem ipsum',
+			});
+			const git = await createGit(runtimeFixture.path);
+
+			await git('add', ['data.json']);
+
+			const { stderr, stdout, exitCode } = await runtimeAicommits([], {
+				reject: false,
+			});
+
+			expect(exitCode).toBe(1);
+			expect(`${stdout}\n${stderr}`).toMatch('Please set your API base URL via `aicommits config set base-url=<https://...>`');
+
+			await runtimeFixture.rm();
 		});
 
 		await fixture.rm();
