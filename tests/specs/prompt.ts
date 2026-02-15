@@ -46,6 +46,14 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('Do not use section labels like "Impact:"');
 		});
 
+		test('does not include score-based type selection workflow', () => {
+			const prompt = generatePrompt('en', 72, 'conventional');
+
+			expect(prompt).not.toMatch('Type selection workflow');
+			expect(prompt).not.toMatch('EvidenceMatch');
+			expect(prompt).not.toMatch('WeightedScore');
+		});
+
 		test('supports list detail style', () => {
 			const prompt = generatePrompt('en', 72, 'conventional', {
 				includeDetails: true,

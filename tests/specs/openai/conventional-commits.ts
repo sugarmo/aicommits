@@ -5,11 +5,11 @@ import {
 import type { ValidConfig } from '../../../src/utils/config.js';
 import { getDiff } from '../../utils.js';
 
-const { OPENAI_KEY } = process.env;
+const OPENAI_KEY = process.env.OPENAI_KEY || process.env.OPENAI_API_KEY;
 
 export default testSuite(({ describe }) => {
 	if (!OPENAI_KEY) {
-		console.warn('⚠️  process.env.OPENAI_KEY is necessary to run these tests. Skipping...');
+		console.warn('⚠️  process.env.OPENAI_KEY or process.env.OPENAI_API_KEY is necessary to run these tests. Skipping...');
 		return;
 	}
 

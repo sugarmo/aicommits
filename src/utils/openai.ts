@@ -14,6 +14,13 @@ import {
 	type PromptOptions,
 } from './prompt.js';
 
+type CompletionStreamEvent = {
+	kind: 'reasoning' | 'content';
+	text: string;
+};
+
+type CompletionStreamCallback = (event: CompletionStreamEvent) => void;
+
 const httpsPost = async (
 	hostname: string,
 	path: string,
@@ -21,6 +28,8 @@ const httpsPost = async (
 	json: unknown,
 	timeout: number,
 	proxy?: string,
+	port = 443,
+	onChunk?: (chunk: string) => void,
 ) => new Promise<{
 	request: ClientRequest;
 	response: IncomingMessage;
@@ -29,7 +38,7 @@ const httpsPost = async (
 	const postContent = JSON.stringify(json);
 
 	const options: RequestOptions = {
-		port: 443,
+		port,
 		hostname,
 		path,
 		method: 'POST',
@@ -50,7 +59,10 @@ const httpsPost = async (
 		options,
 		(response) => {
 			const body: Buffer[] = [];
-			response.on('data', chunk => body.push(chunk));
+			response.on('data', (chunk: Buffer) => {
+				body.push(chunk);
+				onChunk?.(chunk.toString());
+			});
 			response.on('end', () => {
 				resolve({
 					request,
@@ -63,28 +75,129 @@ const httpsPost = async (
 	request.on('error', reject);
 	request.on('timeout', () => {
 		request.destroy();
-		reject(new KnownError(`Time out error: request took over ${timeout}ms. Try increasing the \`timeout\` config, or checking the OpenAI API status https://status.openai.com`));
+		reject(new KnownError(`Time out error: request took over ${timeout}ms. Try increasing the \`timeout\` config, or checking your API provider status.`));
 	});
 
 	request.write(postContent);
 	request.end();
 });
 
+const resolveChatCompletionsEndpoint = (baseUrl?: string) => {
+	if (!baseUrl?.trim()) {
+		throw new KnownError('Please set your API base URL via `aicommits config set base-url=<https://...>`');
+	}
+
+	const normalized = baseUrl.trim();
+	const parsed = new URL(normalized);
+	const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+
+	return {
+		hostname: parsed.hostname,
+		port: parsed.port ? Number(parsed.port) : 443,
+		path: `${normalizedPath}/chat/completions`,
+	};
+};
+
 const createChatCompletion = async (
 	apiKey: string,
 	json: CreateChatCompletionRequest,
 	timeout: number,
 	proxy?: string,
+	baseUrl?: string,
+	onStreamEvent?: CompletionStreamCallback,
 ) => {
+	const requestBody = {
+		...json,
+		stream: true,
+	} as CreateChatCompletionRequest;
+
+	let liveStreamBuffer = '';
+	const emitStreamEventFromPayload = (payload: Record<string, unknown>) => {
+		if (!onStreamEvent) {
+			return;
+		}
+
+		const choices = Array.isArray(payload.choices) ? payload.choices : [];
+		for (const choice of choices) {
+			if (typeof choice !== 'object' || choice === null) {
+				continue;
+			}
+
+			const delta = (choice as Record<string, unknown>).delta;
+			if (typeof delta !== 'object' || delta === null) {
+				continue;
+			}
+
+			const deltaRecord = delta as Record<string, unknown>;
+			const reasoningContent = (
+				typeof deltaRecord.reasoning_content === 'string'
+					? deltaRecord.reasoning_content
+					: (
+						typeof deltaRecord.reasoning === 'string'
+							? deltaRecord.reasoning
+							: ''
+					)
+			);
+			if (reasoningContent) {
+				onStreamEvent({
+					kind: 'reasoning',
+					text: reasoningContent,
+				});
+			}
+
+			if (typeof deltaRecord.content === 'string' && deltaRecord.content.length > 0) {
+				onStreamEvent({
+					kind: 'content',
+					text: deltaRecord.content,
+				});
+			}
+		}
+	};
+
+	const handleLiveChunk = (chunk: string) => {
+		if (!onStreamEvent) {
+			return;
+		}
+
+		liveStreamBuffer += chunk.replace(/\r\n/g, '\n');
+		let separatorIndex = liveStreamBuffer.indexOf('\n\n');
+		while (separatorIndex !== -1) {
+			const rawEvent = liveStreamBuffer.slice(0, separatorIndex);
+			liveStreamBuffer = liveStreamBuffer.slice(separatorIndex + 2);
+
+			for (const rawLine of rawEvent.split('\n')) {
+				const line = rawLine.trim();
+				if (!line.startsWith('data:')) {
+					continue;
+				}
+
+				const payload = line.slice(5).trim();
+				if (!payload || payload === '[DONE]') {
+					continue;
+				}
+
+				try {
+					const parsedPayload = JSON.parse(payload) as Record<string, unknown>;
+					emitStreamEventFromPayload(parsedPayload);
+				} catch {}
+			}
+
+			separatorIndex = liveStreamBuffer.indexOf('\n\n');
+		}
+	};
+
+	const endpoint = resolveChatCompletionsEndpoint(baseUrl);
 	const { response, data } = await httpsPost(
-		'api.openai.com',
-		'/v1/chat/completions',
+		endpoint.hostname,
+		endpoint.path,
 		{
 			Authorization: `Bearer ${apiKey}`,
 		},
-		json,
+		requestBody,
 		timeout,
 		proxy,
+		endpoint.port,
+		handleLiveChunk,
 	);
 
 	if (
@@ -92,20 +205,157 @@ const createChatCompletion = async (
 		|| response.statusCode < 200
 		|| response.statusCode > 299
 	) {
-		let errorMessage = `OpenAI API Error: ${response.statusCode} - ${response.statusMessage}`;
+		let errorMessage = `API Error: ${response.statusCode} - ${response.statusMessage}`;
 
 		if (data) {
 			errorMessage += `\n\n${data}`;
 		}
 
-		if (response.statusCode === 500) {
-			errorMessage += '\n\nCheck the API status: https://status.openai.com';
-		}
-
 		throw new KnownError(errorMessage);
 	}
 
-	return JSON.parse(data) as CreateChatCompletionResponse;
+	const trimmed = data.trim();
+	if (!trimmed) {
+		throw new KnownError('API Error: Empty response body');
+	}
+
+	if (trimmed.startsWith('{')) {
+		return JSON.parse(trimmed) as CreateChatCompletionResponse;
+	}
+
+	const streamPayloads: Array<Record<string, unknown>> = [];
+	for (const rawLine of trimmed.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line.startsWith('data:')) {
+			continue;
+		}
+
+		const payload = line.slice(5).trim();
+		if (!payload || payload === '[DONE]') {
+			continue;
+		}
+
+		try {
+			streamPayloads.push(JSON.parse(payload) as Record<string, unknown>);
+		} catch {}
+	}
+
+	if (streamPayloads.length === 0) {
+		throw new KnownError('API Error: Unable to parse streamed response');
+	}
+
+	const streamError = streamPayloads.find(payload => (
+		typeof payload.error === 'object'
+		&& payload.error !== null
+	));
+	if (streamError?.error && typeof streamError.error === 'object' && streamError.error !== null) {
+		const message = 'message' in streamError.error && typeof streamError.error.message === 'string'
+			? streamError.error.message
+			: JSON.stringify(streamError.error);
+		throw new KnownError(`API Error: ${message}`);
+	}
+
+	const firstPayload = streamPayloads.find(payload => typeof payload.id === 'string') || streamPayloads[0];
+
+	type StreamChoice = {
+		index: number;
+		role?: string;
+		finishReason?: string | null;
+		contentParts: string[];
+		reasoningParts: string[];
+	};
+
+	const streamChoices = new Map<number, StreamChoice>();
+	for (const payload of streamPayloads) {
+		const choices = Array.isArray(payload.choices) ? payload.choices : [];
+		for (const choice of choices) {
+			if (typeof choice !== 'object' || choice === null) {
+				continue;
+			}
+
+			const choiceRecord = choice as Record<string, unknown>;
+			const index = typeof choiceRecord.index === 'number' ? choiceRecord.index : 0;
+			const existing = streamChoices.get(index) || {
+				index,
+				contentParts: [],
+				reasoningParts: [],
+			};
+
+			const delta = choiceRecord.delta;
+			if (typeof delta === 'object' && delta !== null) {
+				const deltaRecord = delta as Record<string, unknown>;
+				if (typeof deltaRecord.role === 'string') {
+					existing.role = deltaRecord.role;
+				}
+
+				if (typeof deltaRecord.content === 'string') {
+					existing.contentParts.push(deltaRecord.content);
+				}
+
+				if (typeof deltaRecord.reasoning_content === 'string') {
+					existing.reasoningParts.push(deltaRecord.reasoning_content);
+				}
+
+				if (typeof deltaRecord.reasoning === 'string') {
+					existing.reasoningParts.push(deltaRecord.reasoning);
+				}
+			}
+
+			const finishReason = choiceRecord.finish_reason;
+			if (typeof finishReason === 'string' || finishReason === null) {
+				existing.finishReason = finishReason;
+			}
+
+			streamChoices.set(index, existing);
+		}
+	}
+
+	const combinedChoices = Array.from(streamChoices.values())
+		.sort((a, b) => a.index - b.index)
+		.map((choice) => {
+			const message: Record<string, unknown> = {
+				role: choice.role || 'assistant',
+				content: choice.contentParts.join(''),
+			};
+
+			const reasoningContent = choice.reasoningParts.join('');
+			if (reasoningContent) {
+				message.reasoning_content = reasoningContent;
+			}
+
+			return {
+				index: choice.index,
+				finish_reason: choice.finishReason ?? 'stop',
+				message: message as any,
+			};
+		});
+
+	if (combinedChoices.length === 0) {
+		throw new KnownError('API Error: Streamed response did not include any choices');
+	}
+
+	return {
+		id: typeof firstPayload.id === 'string' ? firstPayload.id : '',
+		object: 'chat.completion',
+		created: typeof firstPayload.created === 'number'
+			? firstPayload.created
+			: Math.floor(Date.now() / 1000),
+		model: typeof firstPayload.model === 'string' ? firstPayload.model : '',
+		choices: combinedChoices as unknown as CreateChatCompletionResponse['choices'],
+		usage: undefined as any,
+	} as CreateChatCompletionResponse;
+};
+
+const createMinimalChatRequest = (
+	model: TiktokenModel,
+	messages: CreateChatCompletionRequest['messages'],
+): CreateChatCompletionRequest => {
+	const request: CreateChatCompletionRequest = {
+		model,
+		messages,
+	};
+
+	return request;
 };
 
 const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, '\n');
@@ -294,439 +544,28 @@ const sanitizeMessage = (
 	return sanitizeSimpleMessage(message);
 };
 
-type ScoreWeightCategory = 'refactor' | 'feat' | 'fix' | 'perf' | 'other';
-type JudgeTypeScore = {
-	evidenceMatch: number;
-	titleBodyConsistency: number;
-	exclusivity: number;
-	hardGatePass: boolean;
-};
-export type ConventionalTypeScoreCandidate = {
-	typeName: string;
-	weightCategory: ScoreWeightCategory;
-	evidenceMatch: number;
-	titleBodyConsistency: number;
-	exclusivity: number;
-	hardGatePass: boolean;
-	modelHardGatePass: boolean;
-	weightedScore: number;
-	baseScore: number;
-	typeWeight: number;
-};
-export type ConventionalTypeJudgeReport = {
-	source: 'topCandidates' | 'scores';
-	selectedType?: string;
-	topCandidates: ConventionalTypeScoreCandidate[];
+export type CommitMessageStreamPhase = 'message' | 'title-rewrite';
+export type CommitMessageStreamEvent = CompletionStreamEvent & {
+	phase: CommitMessageStreamPhase;
 };
 export type GenerateCommitMessageOptions = PromptOptions & {
-	onConventionalTypeScored?: (report: ConventionalTypeJudgeReport) => void;
-};
-
-const judgeTypeWeights: Record<ScoreWeightCategory, number> = {
-	refactor: 1.10,
-	feat: 1.00,
-	fix: 0.80,
-	perf: 0.75,
-	other: 0.95,
-};
-
-const scoreEpsilon = 1e-6;
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> => (
-	typeof value === 'object'
-	&& value !== null
-	&& !Array.isArray(value)
-);
-
-const clampScore0to10 = (value: unknown) => {
-	const numeric = typeof value === 'number' ? value : Number(value);
-	if (!Number.isFinite(numeric)) {
-		return undefined;
-	}
-
-	return Math.max(0, Math.min(10, numeric));
+	onStreamEvent?: (event: CommitMessageStreamEvent) => void;
 };
 
 const normalizeKey = (value: string) => value.trim().toLowerCase();
 
-const extractJsonObjectText = (raw: string) => {
-	const cleaned = stripCodeFences(raw).trim();
-	if (!cleaned) {
-		return undefined;
-	}
-
-	const firstBrace = cleaned.indexOf('{');
-	const lastBrace = cleaned.lastIndexOf('}');
-	if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-		return undefined;
-	}
-
-	return cleaned.slice(firstBrace, lastBrace + 1);
-};
-
-const readNumberField = (
-	record: Record<string, unknown>,
-	keys: string[],
-) => {
-	for (const key of keys) {
-		if (!(key in record)) {
-			continue;
-		}
-
-		const parsed = clampScore0to10(record[key]);
-		if (parsed !== undefined) {
-			return parsed;
-		}
-	}
-
-	return undefined;
-};
-
-const readBooleanField = (
-	record: Record<string, unknown>,
-	keys: string[],
-) => {
-	for (const key of keys) {
-		if (!(key in record)) {
-			continue;
-		}
-
-		const value = record[key];
-		if (typeof value === 'boolean') {
-			return value;
-		}
-
-		if (typeof value === 'string') {
-			const normalized = value.trim().toLowerCase();
-			if (['true', 'yes', '1', 'pass', 'passed'].includes(normalized)) {
-				return true;
-			}
-
-			if (['false', 'no', '0', 'fail', 'failed'].includes(normalized)) {
-				return false;
-			}
-		}
-	}
-
-	return undefined;
-};
-
-const parseJudgeTypeScore = (value: unknown): JudgeTypeScore | undefined => {
-	if (!isObjectRecord(value)) {
-		return undefined;
-	}
-
-	const evidenceMatch = readNumberField(
-		value,
-		['evidenceMatch', 'evidence', 'evidenceScore', 'evidence_score'],
-	);
-	const titleBodyConsistency = readNumberField(
-		value,
-		['titleBodyConsistency', 'consistency', 'title_body_consistency', 'consistencyScore'],
-	);
-	const exclusivity = readNumberField(
-		value,
-		['exclusivity', 'exclusive', 'exclusivityScore', 'exclusivity_score'],
-	);
-	const hardGatePass = readBooleanField(
-		value,
-		['hardGatePass', 'hardGate', 'hard_gate_pass', 'passesHardGate'],
-	);
-
-	if (
-		evidenceMatch === undefined
-		|| titleBodyConsistency === undefined
-		|| exclusivity === undefined
-		|| hardGatePass === undefined
-	) {
-		return undefined;
-	}
-
-	return {
-		evidenceMatch,
-		titleBodyConsistency,
-		exclusivity,
-		hardGatePass,
-	};
-};
-
-const parseJudgeTopCandidates = (
-	value: unknown,
-	allowedTypes: string[],
-) => {
-	if (!Array.isArray(value)) {
-		return Object.create(null) as Record<string, unknown>;
-	}
-
-	const allowedTypeMap = new Map(
-		allowedTypes.map(typeName => [normalizeKey(typeName), typeName] as const),
-	);
-	const scoresByType = Object.create(null) as Record<string, unknown>;
-
-	for (const candidate of value) {
-		if (!isObjectRecord(candidate)) {
-			continue;
-		}
-
-		const rawType = candidate.type;
-		if (typeof rawType !== 'string') {
-			continue;
-		}
-
-		const matchedType = allowedTypeMap.get(normalizeKey(rawType));
-		if (!matchedType || matchedType in scoresByType) {
-			continue;
-		}
-
-		scoresByType[matchedType] = candidate;
-
-		if (Object.keys(scoresByType).length >= 3) {
-			break;
-		}
-	}
-
-	return scoresByType;
-};
-
-const inferScoreWeightCategory = (
-	typeName: string,
-	description: string,
-): ScoreWeightCategory => {
-	const normalizedTypeName = normalizeKey(typeName);
-	if (normalizedTypeName === 'refactor') {
-		return 'refactor';
-	}
-
-	if (normalizedTypeName === 'feat' || normalizedTypeName === 'feature') {
-		return 'feat';
-	}
-
-	if (normalizedTypeName === 'fix' || normalizedTypeName === 'bugfix') {
-		return 'fix';
-	}
-
-	if (normalizedTypeName === 'perf' || normalizedTypeName === 'performance') {
-		return 'perf';
-	}
-
-	const text = `${typeName} ${description}`.toLowerCase();
-
-	if (/\brefactor\b|重构|重组|结构优化|cleanup|clean up|async|await/.test(text)) {
-		return 'refactor';
-	}
-
-	if (/\bfeat\b|\bfeature\b|新增|新功能|引入/.test(text)) {
-		return 'feat';
-	}
-
-	if (/\bfix\b|\bbug\b|缺陷|错误|崩溃|异常|回归|修复/.test(text)) {
-		return 'fix';
-	}
-
-	if (/\bperf\b|\bperformance\b|性能|提速|加速|吞吐|延迟|内存/.test(text)) {
-		return 'perf';
-	}
-
-	return 'other';
-};
-
-const getRankedTypesByJudgeScores = (
-	conventionalTypes: Record<string, string>,
-	scoresByTypeRaw: Record<string, unknown>,
-) => {
-	const normalizedScoreMap = new Map<string, unknown>();
-	for (const [key, value] of Object.entries(scoresByTypeRaw)) {
-		normalizedScoreMap.set(normalizeKey(key), value);
-	}
-
-	const ranked: ConventionalTypeScoreCandidate[] = [];
-
-	for (const [typeName, description] of Object.entries(conventionalTypes)) {
-		const rawScore = normalizedScoreMap.get(normalizeKey(typeName));
-		const score = parseJudgeTypeScore(rawScore);
-		if (!score) {
-			continue;
-		}
-
-		const weightCategory = inferScoreWeightCategory(typeName, description);
-		const typeWeight = judgeTypeWeights[weightCategory];
-		const modelHardGatePass = score.hardGatePass;
-		const hardGatePass = (
-			weightCategory === 'fix'
-			|| weightCategory === 'perf'
-		)
-			? modelHardGatePass
-			: true;
-		const baseScore = (
-			(score.evidenceMatch * 0.55)
-			+ (score.titleBodyConsistency * 0.30)
-			+ (score.exclusivity * 0.15)
-		);
-		const weightedScore = baseScore * typeWeight;
-
-		ranked.push({
-			typeName,
-			weightCategory,
-			evidenceMatch: score.evidenceMatch,
-			titleBodyConsistency: score.titleBodyConsistency,
-			exclusivity: score.exclusivity,
-			hardGatePass,
-			modelHardGatePass,
-			weightedScore,
-			baseScore,
-			typeWeight,
-		});
-	}
-
-	ranked.sort((a, b) => {
-		if (a.hardGatePass !== b.hardGatePass) {
-			return a.hardGatePass ? -1 : 1;
-		}
-
-		if (b.weightedScore - a.weightedScore > scoreEpsilon) {
-			return 1;
-		}
-
-		if (a.weightedScore - b.weightedScore > scoreEpsilon) {
-			return -1;
-		}
-
-		return b.typeWeight - a.typeWeight;
-	});
-
-	return ranked;
-};
-
-const buildConventionalTypeJudgeReport = (
-	conventionalTypes: Record<string, string>,
-	scoresByTypeRaw: Record<string, unknown>,
-	source: ConventionalTypeJudgeReport['source'],
-): ConventionalTypeJudgeReport => {
-	const ranked = getRankedTypesByJudgeScores(
-		conventionalTypes,
-		scoresByTypeRaw,
-	);
-
-	const selectedType = (
-		ranked.find(item => item.hardGatePass)
-		|| ranked.find(item => item.weightCategory !== 'fix' && item.weightCategory !== 'perf')
-		|| ranked[0]
-	)?.typeName;
-
-	return {
-		source,
-		selectedType,
-		topCandidates: ranked.slice(0, 3),
-	};
-};
-
-const selectLockedConventionalType = async (
-	apiKey: string,
-	model: TiktokenModel,
-	diff: string,
-	timeout: number,
-	proxy: string | undefined,
-	conventionalTypesRaw: string | undefined,
-) => {
-	const conventionalTypes = parseConventionalTypes(conventionalTypesRaw);
-	const allowedTypes = Object.keys(conventionalTypes);
-	if (allowedTypes.length === 0) {
-		return undefined;
-	}
-
-	const request: CreateChatCompletionRequest = {
-		model,
-		messages: [
-			{
-				role: 'system',
-				content: [
-					'You are selecting the best conventional commit type using structured scoring.',
-					`Allowed type keys: ${allowedTypes.join(', ')}`,
-					'Score candidate types and return ONLY the top 3 highest-scoring types.',
-					'For each returned type, score 0-10 on:',
-					'- evidenceMatch',
-					'- titleBodyConsistency',
-					'- exclusivity',
-					'Also provide hardGatePass (true/false).',
-					'Hard gates:',
-					'- fix requires explicit defect-fix evidence (wrong behavior, crash, exception, regression, bug/defect).',
-					'- perf requires near-exclusive performance intent.',
-					'- async/await migration and API/concurrency-flow restructuring should prefer refactor unless explicit bug-fix evidence dominates.',
-					'Return ONLY JSON in this shape (no markdown, no prose):',
-					'{"topCandidates":[{"type":"refactor","evidenceMatch":0,"titleBodyConsistency":0,"exclusivity":0,"hardGatePass":true}]}',
-					'Rules for output:',
-					'- topCandidates must be sorted from highest to lowest confidence.',
-					'- Include at most 3 items.',
-					'- type must be one of allowed type keys.',
-				].join('\n'),
-			},
-			{
-				role: 'user',
-				content: diff,
-			},
-		],
-		top_p: 1,
-		frequency_penalty: 0,
-		presence_penalty: 0,
-		max_tokens: 420,
-		stream: false,
-		n: 1,
-	};
-
-	const completion = await createChatCompletion(
-		apiKey,
-		request,
-		timeout,
-		proxy,
-	);
-
-	const judgeMessage = completion.choices
-		.map(choice => choice.message?.content)
-		.find((content): content is string => typeof content === 'string');
-	if (!judgeMessage) {
-		return undefined;
-	}
-
-	const judgeJsonText = extractJsonObjectText(judgeMessage);
-	if (!judgeJsonText) {
-		return undefined;
-	}
-
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(judgeJsonText);
-	} catch {
-		return undefined;
-	}
-
-	if (!isObjectRecord(parsed)) {
-		return undefined;
-	}
-
-	const topCandidateScores = parseJudgeTopCandidates(parsed.topCandidates, allowedTypes);
-	const candidateCount = Object.keys(topCandidateScores).length;
-	if (candidateCount > 0) {
-		return buildConventionalTypeJudgeReport(
-			conventionalTypes,
-			topCandidateScores,
-			'topCandidates',
-		);
-	}
-
-	if (!isObjectRecord(parsed.scores)) {
-		return undefined;
-	}
-
-	return buildConventionalTypeJudgeReport(
-		conventionalTypes,
-		parsed.scores,
-		'scores',
-	);
-};
-
 const deduplicateMessages = (array: string[]) => Array.from(new Set(array));
 const chineseCharacterPattern = /[\u3400-\u9fff]/;
 const conventionalTitlePrefixPattern = /^([a-z]+(?:\([^)]+\))?:\s*)(.+)$/i;
+const conventionalTitleTypeScopePattern = /^([a-z]+)(\([^)]+\))?:\s*(.+)$/i;
+const conventionalLeadingTypePattern = /^([a-z]+)\b(?:\s+|[:\-])/i;
+const conventionalTypeAliasMap: Record<string, string> = {
+	feature: 'feat',
+	features: 'feat',
+	bug: 'fix',
+	bugfix: 'fix',
+	performance: 'perf',
+};
 
 const isChineseLocale = (locale: string) => {
 	const normalized = locale.trim().toLowerCase();
@@ -746,6 +585,106 @@ const splitConventionalTitle = (title: string) => {
 		prefix: match[1],
 		subject: (match[2] || '').trim(),
 	};
+};
+
+const createConventionalTypeLookup = (rawConventionalTypes?: string) => {
+	const lookup = new Map<string, string>();
+	const parsed = parseConventionalTypes(rawConventionalTypes);
+
+	for (const typeName of Object.keys(parsed)) {
+		lookup.set(normalizeKey(typeName), typeName);
+	}
+
+	for (const [alias, canonical] of Object.entries(conventionalTypeAliasMap)) {
+		if (lookup.has(normalizeKey(alias))) {
+			continue;
+		}
+
+		const mapped = lookup.get(normalizeKey(canonical));
+		if (mapped) {
+			lookup.set(normalizeKey(alias), mapped);
+		}
+	}
+
+	return lookup;
+};
+
+const resolveConventionalTypeToken = (
+	token: string,
+	lookup: Map<string, string>,
+) => lookup.get(normalizeKey(token));
+
+const inferConventionalTypeFromSubject = (
+	subject: string,
+	lookup: Map<string, string>,
+) => {
+	const match = subject.trim().match(conventionalLeadingTypePattern);
+	if (!match?.[1]) {
+		return undefined;
+	}
+
+	return resolveConventionalTypeToken(match[1], lookup);
+};
+
+const stripLeadingTypeWord = (
+	subject: string,
+	typeName: string,
+	lookup: Map<string, string>,
+) => {
+	const match = subject.trim().match(/^([a-z]+)\b(?:\s+|[:\-])+(.*)$/i);
+	if (!match?.[1] || !match[2]) {
+		return subject;
+	}
+
+	const resolvedLeadingType = resolveConventionalTypeToken(match[1], lookup);
+	if (!resolvedLeadingType) {
+		return subject;
+	}
+
+	if (normalizeKey(resolvedLeadingType) !== normalizeKey(typeName)) {
+		return subject;
+	}
+
+	const stripped = match[2].trim();
+	return stripped || subject;
+};
+
+const harmonizeConventionalTitle = (
+	title: string,
+	lookup: Map<string, string>,
+) => {
+	const match = title.match(conventionalTitleTypeScopePattern);
+	if (!match) {
+		return title;
+	}
+
+	const [, rawType, rawScope = '', rawSubject = ''] = match;
+	const subject = rawSubject.trim();
+	if (!subject) {
+		return title;
+	}
+
+	const currentType = resolveConventionalTypeToken(rawType, lookup) || rawType.toLowerCase();
+	const inferredType = inferConventionalTypeFromSubject(subject, lookup);
+	const nextType = inferredType || currentType;
+	const nextSubject = stripLeadingTypeWord(subject, nextType, lookup);
+
+	return `${nextType}${rawScope}: ${nextSubject || subject}`;
+};
+
+const harmonizeConventionalMessage = (
+	message: string,
+	includeDetails: boolean,
+	lookup: Map<string, string>,
+) => {
+	const { title, body } = includeDetails
+		? splitCommitMessage(message)
+		: { title: message.trim(), body: '' };
+	const harmonizedTitle = harmonizeConventionalTitle(title, lookup);
+
+	return includeDetails
+		? formatCommitMessage(harmonizedTitle, body)
+		: harmonizedTitle;
 };
 
 const conventionalScopedTitlePattern = /^([a-z]+)\(([^)\s][^)]*)\):\s*\S/i;
@@ -798,13 +737,14 @@ const rewriteTitleToLocale = async (
 	maxLength: number,
 	timeout: number,
 	proxy?: string,
-	temperature?: number,
+	baseUrl?: string,
+	onStreamEvent?: CompletionStreamCallback,
 ) => {
 	const { prefix, subject } = splitConventionalTitle(title);
 
-	const request: CreateChatCompletionRequest = {
+	const request: CreateChatCompletionRequest = createMinimalChatRequest(
 		model,
-		messages: [
+		[
 			{
 				role: 'system',
 				content: [
@@ -820,23 +760,15 @@ const rewriteTitleToLocale = async (
 				content: title,
 			},
 		],
-		top_p: 1,
-		frequency_penalty: 0,
-		presence_penalty: 0,
-		max_tokens: 120,
-		stream: false,
-		n: 1,
-	};
-
-	if (temperature !== undefined) {
-		request.temperature = temperature;
-	}
+	);
 
 	const completion = await createChatCompletion(
 		apiKey,
 		request,
 		timeout,
 		proxy,
+		baseUrl,
+		onStreamEvent,
 	);
 
 	const rewritten = completion.choices
@@ -872,7 +804,8 @@ const enforceTitleLocale = async (
 	maxLength: number,
 	timeout: number,
 	proxy?: string,
-	temperature?: number,
+	baseUrl?: string,
+	onStreamEvent?: CompletionStreamCallback,
 ) => {
 	const { title, body } = includeDetails
 		? splitCommitMessage(message)
@@ -891,7 +824,8 @@ const enforceTitleLocale = async (
 			maxLength,
 			timeout,
 			proxy,
-			temperature,
+			baseUrl,
+			onStreamEvent,
 		);
 		return includeDetails
 			? formatCommitMessage(rewrittenTitle, body)
@@ -913,35 +847,16 @@ export const generateCommitMessage = async (
 	timeout: number,
 	proxy?: string,
 	options: GenerateCommitMessageOptions = {},
-	temperature?: number,
+	baseUrl?: string,
 ) => {
 	const includeDetails = options.includeDetails ?? false;
 	const detailsStyle: DetailsStyle = options.detailsStyle ?? 'paragraph';
+	const conventionalTypeLookup = createConventionalTypeLookup(options.conventionalTypes);
 	const enforceConventionalScope = (
 		type === 'conventional'
 		&& (options.conventionalScope ?? true)
 		&& supportsConventionalScope(options.conventionalFormat)
 	);
-	let lockedConventionalType: string | undefined;
-
-	if (type === 'conventional') {
-		try {
-			const judgeReport = await selectLockedConventionalType(
-				apiKey,
-				model,
-				diff,
-				timeout,
-				proxy,
-				options.conventionalTypes,
-			);
-			lockedConventionalType = judgeReport?.selectedType;
-			if (judgeReport) {
-				options.onConventionalTypeScored?.(judgeReport);
-			}
-		} catch {
-			// Fall back to single-pass generation if type selection fails.
-		}
-	}
 
 	const requestMessages = async (
 		extraInstructions?: string,
@@ -954,49 +869,47 @@ export const generateCommitMessage = async (
 			.filter(Boolean)
 			.join('\n');
 
-		const promptOptions: PromptOptions = {
-			includeDetails: options.includeDetails,
-			detailsStyle: options.detailsStyle,
-			instructions: mergedInstructions,
-			conventionalFormat: options.conventionalFormat,
-			conventionalTypes: options.conventionalTypes,
-			conventionalScope: options.conventionalScope,
-			changedFiles: options.changedFiles,
-			lockedConventionalType,
-		};
+			const promptOptions: PromptOptions = {
+				includeDetails: options.includeDetails,
+				detailsStyle: options.detailsStyle,
+				instructions: mergedInstructions,
+				conventionalFormat: options.conventionalFormat,
+				conventionalTypes: options.conventionalTypes,
+				conventionalScope: options.conventionalScope,
+				changedFiles: options.changedFiles,
+			};
 
-		const request: CreateChatCompletionRequest = {
-			model,
-			messages: [
-				{
-					role: 'system',
-					content: generatePrompt(locale, maxLength, type, promptOptions),
-				},
-				{
-					role: 'user',
-					content: diff,
-				},
-			],
-			top_p: 1,
-			frequency_penalty: 0,
-			presence_penalty: 0,
-			max_tokens: includeDetails ? 420 : 200,
-			stream: false,
-			n: completions,
-		};
+		const requestPayloadMessages = [
+			{
+				role: 'system' as const,
+				content: generatePrompt(locale, maxLength, type, promptOptions),
+			},
+			{
+				role: 'user' as const,
+				content: diff,
+			},
+		];
 
-		if (temperature !== undefined) {
-			request.temperature = temperature;
-		}
-
-		const completion = await createChatCompletion(
-			apiKey,
-			request,
-			timeout,
-			proxy,
+		const requestCount = Math.max(1, completions);
+		const completionResponses = await Promise.all(
+			Array.from({ length: requestCount }, () => createChatCompletion(
+				apiKey,
+				createMinimalChatRequest(
+					model,
+					requestPayloadMessages,
+				),
+				timeout,
+				proxy,
+				baseUrl,
+				event => options.onStreamEvent?.({
+					phase: 'message',
+					...event,
+				}),
+			)),
 		);
 
-		const messages = completion.choices
+		const messages = completionResponses
+			.flatMap(completion => completion.choices)
 			.flatMap((choice) => {
 				const content = choice.message?.content;
 				if (typeof content !== 'string') {
@@ -1017,12 +930,24 @@ export const generateCommitMessage = async (
 				maxLength,
 				timeout,
 				proxy,
-				temperature,
+				baseUrl,
+				event => options.onStreamEvent?.({
+					phase: 'title-rewrite',
+					...event,
+				}),
 			)),
 		);
 
+		const harmonizedMessages = type === 'conventional'
+			? localizedMessages.map(message => harmonizeConventionalMessage(
+				message,
+				includeDetails,
+				conventionalTypeLookup,
+			))
+			: localizedMessages;
+
 		return deduplicateMessages(
-			localizedMessages
+			harmonizedMessages
 				.filter(Boolean),
 		);
 	};
