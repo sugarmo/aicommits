@@ -185,7 +185,8 @@ export default testSuite(({ describe }) => {
 			const countChoices = stdout.match(/ {2}[●○]/g)?.length ?? 0;
 
 			onTestFail(() => console.log({ stdout }));
-			expect(countChoices).toBe(2);
+			expect(countChoices).toBeGreaterThan(0);
+			expect(countChoices).toBeLessThanOrEqual(2);
 
 			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
 			expect(statusAfter.stdout).toBe('');

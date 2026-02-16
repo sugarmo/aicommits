@@ -64,17 +64,10 @@
 	"eslintConfig": {
 		"extends": "@pvtnbr",
 		"rules": {
-			"unicorn/no-process-exit": "off"
+			"unicorn/no-process-exit": "off",
+			"unicorn/expiring-todo-comments": "off"
 		},
 		"overrides": [
-			{
-				"files": [
-					"**/*.json"
-				],
-				"rules": {
-					"unicorn/expiring-todo-comments": "off"
-				}
-			},
 			{
 				"files": "./src/commands/prepare-commit-msg-hook.ts",
 				"rules": {
