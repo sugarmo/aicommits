@@ -106,10 +106,10 @@ You can combine conventional commits with custom output format and type mapping:
 aicommits --type conventional --conventional-format "<type>(<scope>): <subject>" --conventional-types '{"feature":"Introduce a feature","bugfix":"Fix defects"}'
 ```
 
-By default, conventional mode also prefers including scope (for example `refactor(RecentScrollshotController): ...`) when there is a clear dominant file/class/module. You can disable this behavior with:
+By default, conventional mode omits scope and uses `type: subject`. You can enable scope preference (for example `refactor(RecentScrollshotController): ...`) when there is a clear dominant file/class/module:
 
 ```sh
-aicommits --conventional-scope false
+aicommits --conventional-scope true
 ```
 
 ### Git hook
@@ -360,9 +360,10 @@ aicommits config set conventional-types='{"feature":"Introduce a feature","bugfi
 
 #### conventional-scope
 
-Default: `true`
+Default: `false`
 
-When enabled, conventional commits strongly prefer `type(scope): subject` using the primary file/class/module as scope.
+When enabled, conventional commits strongly prefer `type(scope): subject` using the primary file/class/module as scope.  
+When disabled (default), conventional commits prefer `type: subject`.
 
 ```sh
 aicommits config set conventional-scope=true

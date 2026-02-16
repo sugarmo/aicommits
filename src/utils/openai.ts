@@ -908,7 +908,7 @@ export const generateCommitMessage = async (
 	const conventionalTypeLookup = createConventionalTypeLookup(resolvedOptions.conventionalTypes);
 	const enforceConventionalScope = (
 		type === 'conventional'
-		&& (resolvedOptions.conventionalScope ?? true)
+		&& (resolvedOptions.conventionalScope ?? false)
 		&& supportsConventionalScope(resolvedOptions.conventionalFormat)
 	);
 

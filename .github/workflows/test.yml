@@ -46,7 +46,12 @@ jobs:
         tinyproxy
     - name: Test
       env:
+        AICOMMITS_TEST_API_KEY: ${{ secrets.AICOMMITS_TEST_API_KEY }}
+        AICOMMITS_TEST_BASE_URL: ${{ secrets.AICOMMITS_TEST_BASE_URL }}
+        AICOMMITS_TEST_MODEL: ${{ secrets.AICOMMITS_TEST_MODEL }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+        OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
       run: |
         pnpm test
         pnpm --use-node-version=14.21.3 test

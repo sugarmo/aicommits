@@ -216,11 +216,18 @@ export default testSuite(({ describe }) => {
 		});
 
 		await describe('conventional-scope', ({ test }) => {
-			test('accepts boolean and can be disabled', async () => {
-				await aicommits(['config', 'set', 'conventional-scope=false']);
-
+			test('defaults to false and can be toggled', async () => {
 				const get = await aicommits(['config', 'get', 'conventional-scope']);
 				expect(get.stdout).toBe('conventional-scope=false');
+				await aicommits(['config', 'set', 'conventional-scope=true']);
+
+				const enabled = await aicommits(['config', 'get', 'conventional-scope']);
+				expect(enabled.stdout).toBe('conventional-scope=true');
+
+				await aicommits(['config', 'set', 'conventional-scope=false']);
+
+				const disabled = await aicommits(['config', 'get', 'conventional-scope']);
+				expect(disabled.stdout).toBe('conventional-scope=false');
 			});
 		});
 

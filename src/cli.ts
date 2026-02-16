@@ -68,7 +68,7 @@ cli(
 			},
 			conventionalScope: {
 				type: String,
-				description: 'Conventional scope preference: true or false (default: true)',
+				description: 'Conventional scope preference: true or false (default: false)',
 			},
 			baseUrl: {
 				type: String,

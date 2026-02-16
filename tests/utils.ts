@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import { execa, execaNode, type Options } from 'execa';
+import type { TiktokenModel } from '@dqbd/tiktoken';
 import {
 	createFixture as createFixtureBase,
 	type FileTree,
@@ -8,6 +9,28 @@ import {
 } from 'fs-fixture';
 
 const aicommitsPath = path.resolve('./dist/cli.mjs');
+
+const TEST_PROVIDER_API_KEY = (
+	process.env.AICOMMITS_TEST_API_KEY
+	|| process.env.AICOMMITS_API_KEY
+	|| process.env.OPENAI_API_KEY
+	|| process.env.OPENAI_KEY
+	|| ''
+).trim();
+
+const TEST_PROVIDER_BASE_URL = (
+	process.env.AICOMMITS_TEST_BASE_URL
+	|| process.env.AICOMMITS_BASE_URL
+	|| process.env.OPENAI_BASE_URL
+	|| 'https://api.openai.com/v1'
+).trim();
+
+const TEST_PROVIDER_MODEL = (
+	process.env.AICOMMITS_TEST_MODEL
+	|| process.env.AICOMMITS_MODEL
+	|| process.env.OPENAI_MODEL
+	|| 'gpt-4o-mini'
+).trim() as TiktokenModel;
 
 const createAicommits = (fixture: FsFixture) => {
 	const homeEnv = {
@@ -76,16 +99,25 @@ export const createFixture = async (
 
 export const files = Object.freeze({
 	'.aicommits/config.toml': [
-		`api-key = ${JSON.stringify(process.env.OPENAI_KEY || process.env.OPENAI_API_KEY || '')}`,
-		'base-url = "https://api.openai.com/v1"',
+		`api-key = ${JSON.stringify(TEST_PROVIDER_API_KEY)}`,
+		`base-url = ${JSON.stringify(TEST_PROVIDER_BASE_URL)}`,
+		`model = ${JSON.stringify(TEST_PROVIDER_MODEL)}`,
 	].join('\n'),
 	'data.json': Array.from({ length: 10 }, (_, i) => `${i}. Lorem ipsum dolor sit amet`).join('\n'),
 });
 
-export const assertOpenAiToken = () => {
-	if (!process.env.OPENAI_KEY && !process.env.OPENAI_API_KEY) {
-		throw new Error('⚠️  process.env.OPENAI_KEY or process.env.OPENAI_API_KEY is necessary to run these tests. Skipping...');
-	}
+export const liveTestProviderConfig = Object.freeze({
+	apiKey: TEST_PROVIDER_API_KEY,
+	baseUrl: TEST_PROVIDER_BASE_URL,
+	model: TEST_PROVIDER_MODEL,
+});
+
+export const hasLiveTestProviderConfig = () => liveTestProviderConfig.apiKey.length > 0;
+
+export const warnSkippedLiveTests = (suiteName: string) => {
+	console.warn(
+		`⚠️  Skipping ${suiteName} live API tests. Set AICOMMITS_TEST_API_KEY (or OPENAI_API_KEY/OPENAI_KEY) to enable.`,
+	);
 };
 
 // See ./diffs/README.md in order to generate diff files

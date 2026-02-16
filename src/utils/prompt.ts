@@ -60,7 +60,7 @@ export const parseConventionalTypes = (rawConventionalTypes?: string) => {
 const getCommitFormat = (
 	type: CommitType,
 	conventionalFormat?: string,
-	conventionalScope = true,
+	conventionalScope = false,
 ) => {
 	if (type === 'conventional') {
 		if (!conventionalScope && !conventionalFormat?.trim()) {
@@ -252,7 +252,7 @@ export const generatePrompt = (
 ) => {
 	const includeDetails = options.includeDetails ?? false;
 	const detailsStyle = options.detailsStyle ?? 'paragraph';
-	const conventionalScope = options.conventionalScope ?? true;
+	const conventionalScope = options.conventionalScope ?? false;
 
 	return [
 		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',

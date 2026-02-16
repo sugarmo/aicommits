@@ -1,16 +1,15 @@
 import path from 'path';
 import { testSuite, expect } from 'manten';
 import {
-	assertOpenAiToken,
 	createFixture,
 	createGit,
 	files,
+	hasLiveTestProviderConfig,
+	warnSkippedLiveTests,
 } from '../utils.js';
 
 export default testSuite(({ describe }) => {
 	describe('Git hook', ({ test }) => {
-		assertOpenAiToken();
-
 		test('errors when not in Git repo', async () => {
 			const { fixture, aicommits } = await createFixture(files);
 			const { exitCode, stderr } = await aicommits(['hook', 'install'], {
@@ -41,6 +40,11 @@ export default testSuite(({ describe }) => {
 
 			await fixture.rm();
 		});
+
+		if (!hasLiveTestProviderConfig()) {
+			warnSkippedLiveTests('Git hook commit generation');
+			return;
+		}
 
 		test('Commits', async () => {
 			const { fixture, aicommits } = await createFixture(files);

@@ -76,17 +76,18 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('RecentScrollshotController.swift');
 			expect(prompt).toMatch('Title anchor requirement:');
 			expect(prompt).toMatch('must mention at least one concrete anchor');
-			expect(prompt).toMatch('include scope using the primary file/class/module');
-		});
-
-		test('supports disabling conventional scope emphasis', () => {
-			const prompt = generatePrompt('en', 72, 'conventional', {
-				conventionalScope: false,
-			});
-
 			expect(prompt).toMatch('Do not include scope in conventional titles.');
 			expect(prompt).toMatch('Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
-			expect(prompt).toMatch('<type>: <commit message>');
+		});
+
+		test('supports enabling conventional scope emphasis', () => {
+			const prompt = generatePrompt('en', 72, 'conventional', {
+				conventionalScope: true,
+			});
+
+			expect(prompt).toMatch('include scope using the primary file/class/module');
+			expect(prompt).toMatch('Only omit scope when there is no clear dominant anchor.');
+			expect(prompt).toMatch('<type>[optional (<scope>)]: <commit message>');
 		});
 
 		test('enforces message language strictly', () => {

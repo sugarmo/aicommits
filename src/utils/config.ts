@@ -303,7 +303,7 @@ const configParsers = {
 		return parseConventionalTypes(conventionalTypes);
 	},
 	'conventional-scope'(conventionalScope?: unknown) {
-		return parseBoolean('conventional-scope', conventionalScope, true);
+		return parseBoolean('conventional-scope', conventionalScope, false);
 	},
 } as const;
 
