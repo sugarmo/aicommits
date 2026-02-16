@@ -1,6 +1,6 @@
 {
 	"name": "@sugarmo/aicommits",
-	"version": "0.0.0-semantic-release",
+	"version": "1.13.0",
 	"description": "Writes your git commit messages for you with AI",
 	"keywords": [
 		"ai",
@@ -72,11 +72,6 @@
 					"unicorn/prevent-abbreviations": "off"
 				}
 			}
-		]
-	},
-	"release": {
-		"branches": [
-			"main"
 		]
 	},
 	"pnpm": {

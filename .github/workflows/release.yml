@@ -1,31 +1,28 @@
-name: Release
+name: Publish
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    tags:
+      - 'v*'
 
 jobs:
-  release:
-    name: Release
+  publish:
+    name: Publish to npm
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+      contents: read
       id-token: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -38,7 +35,14 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Release
-        run: pnpm dlx semantic-release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match package version ($PKG_VERSION)."
+            exit 1
+          fi
+
+      - name: Publish package
+        run: npm publish --access public
