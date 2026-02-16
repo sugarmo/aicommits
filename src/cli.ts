@@ -9,6 +9,7 @@ import { getDisplayVersion } from './utils/version.js';
 const displayVersion = getDisplayVersion(import.meta.url);
 
 const rawArgv = process.argv.slice(2);
+const isCalledFromHookCommand = rawArgv[0] === 'prepare-commit-msg-hook';
 
 cli(
 	{
@@ -97,7 +98,7 @@ cli(
 			process.exit(0);
 		}
 
-		if (isCalledFromGitHook) {
+		if (isCalledFromGitHook || isCalledFromHookCommand) {
 			prepareCommitMessageHook();
 		} else {
 			aicommits(
