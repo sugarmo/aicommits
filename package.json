@@ -1,5 +1,5 @@
 {
-	"name": "aicommits",
+	"name": "@sugarmo/aicommits",
 	"version": "0.0.0-semantic-release",
 	"description": "Writes your git commit messages for you with AI",
 	"keywords": [
@@ -8,9 +8,12 @@
 		"commit"
 	],
 	"license": "MIT",
-	"repository": "Nutlope/aicommits",
+	"repository": "sugarmo/aicommits",
 	"author": "Hassan El Mghari (@nutlope)",
 	"type": "module",
+	"publishConfig": {
+		"access": "public"
+	},
 	"files": [
 		"dist"
 	],

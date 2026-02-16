@@ -4,7 +4,7 @@
     <h1 align="center">AI Commits</h1>
   </div>
 	<p>A CLI that writes your git commit messages for you with AI. Never write a commit message again.</p>
-	<a href="https://www.npmjs.com/package/aicommits"><img src="https://img.shields.io/npm/v/aicommits" alt="Current version"></a>
+	<a href="https://www.npmjs.com/package/@sugarmo/aicommits"><img src="https://img.shields.io/npm/v/%40sugarmo%2Faicommits" alt="Current version"></a>
 </div>
 
 ---
@@ -17,7 +17,7 @@
 1. Install _aicommits_:
 
     ```sh
-    npm install -g aicommits
+    npm install -g @sugarmo/aicommits
     ```
 
 2. Retrieve your API key from your API provider
@@ -40,10 +40,10 @@ Check the installed version with:
 aicommits --version
 ```
 
-If it's not the [latest version](https://github.com/Nutlope/aicommits/releases/latest), run:
+If it's not the [latest version](https://github.com/sugarmo/aicommits/releases/latest), run:
 
 ```sh
-npm update -g aicommits
+npm update -g @sugarmo/aicommits
 ```
 
 ## Usage
