@@ -21,7 +21,7 @@ importers:
         specifier: 0.6.1
         version: 0.6.1(patch_hash=8d6504a2a73594c68e44bc78dd827971625bfcd9b1c8507990eaae21b1b21cd3)
       '@pvtnbr/eslint-config':
-        specifier: ^0.33.0
+        specifier: 0.33.0
         version: 0.33.0(eslint@8.57.1)(typescript@4.9.5)
       '@types/ini':
         specifier: ^1.3.31
@@ -39,7 +39,7 @@ importers:
         specifier: ^1.3.2
         version: 1.3.4
       eslint:
-        specifier: ^8.35.0
+        specifier: 8.57.1
         version: 8.57.1
       execa:
         specifier: ^7.0.0

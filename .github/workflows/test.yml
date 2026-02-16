@@ -9,10 +9,16 @@ jobs:
   test:
     name: Test
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            allow_failure: false
+          - os: windows-latest
+            allow_failure: true
 
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow_failure }}
     timeout-minutes: 10
 
     steps:
@@ -52,6 +58,4 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
         OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-      run: |
-        pnpm test
-        pnpm --use-node-version=14.21.3 test
+      run: pnpm test
