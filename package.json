@@ -1,6 +1,6 @@
 {
 	"name": "@sugarmo/aicommits",
-	"version": "1.13.0",
+	"version": "1.13.2",
 	"publishConfig": {
 		"access": "public"
 	},
