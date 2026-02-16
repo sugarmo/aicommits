@@ -84,7 +84,9 @@ export default testSuite(({ describe, test }) => {
 				conventionalScope: false,
 			});
 
-			expect(prompt).toMatch('Scope is optional; include it only when it clearly improves clarity.');
+			expect(prompt).toMatch('Do not include scope in conventional titles.');
+			expect(prompt).toMatch('Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
+			expect(prompt).toMatch('<type>: <commit message>');
 		});
 
 		test('enforces message language strictly', () => {

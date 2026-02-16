@@ -60,8 +60,12 @@ export const parseConventionalTypes = (rawConventionalTypes?: string) => {
 const getCommitFormat = (
 	type: CommitType,
 	conventionalFormat?: string,
+	conventionalScope = true,
 ) => {
 	if (type === 'conventional') {
+		if (!conventionalScope && !conventionalFormat?.trim()) {
+			return '<type>: <commit message>';
+		}
 		return conventionalFormat?.trim() || commitTypeFormats.conventional;
 	}
 
@@ -71,10 +75,11 @@ const getCommitFormat = (
 const specifyCommitFormat = (
 	type: CommitType,
 	conventionalFormat: string | undefined,
+	conventionalScope: boolean,
 	includeDetails: boolean,
 ) => (includeDetails
-	? `The commit title line must be in format:\n${getCommitFormat(type, conventionalFormat)}`
-	: `The output response must be in format:\n${getCommitFormat(type, conventionalFormat)}`);
+	? `The commit title line must be in format:\n${getCommitFormat(type, conventionalFormat, conventionalScope)}`
+	: `The output response must be in format:\n${getCommitFormat(type, conventionalFormat, conventionalScope)}`);
 
 const getCommitTypeInstruction = (
 	type: CommitType,
@@ -204,7 +209,8 @@ const getAnchorRequirementInstruction = (
 			rules.push('- For conventional commits, include scope using the primary file/class/module when possible (for example: refactor(RecentScrollshotController): ...).');
 			rules.push('- Only omit scope when there is no clear dominant anchor.');
 		} else {
-			rules.push('- Scope is optional; include it only when it clearly improves clarity.');
+			rules.push('- Do not include scope in conventional titles.');
+			rules.push('- Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
 		}
 
 		return rules.join('\n');
@@ -220,14 +226,19 @@ const getAnchorRequirementInstruction = (
 
 const getConventionalSubjectInstruction = (
 	type: CommitType,
+	conventionalScope: boolean,
 ) => {
 	if (type !== 'conventional') {
 		return '';
 	}
 
+	const titlePrefixExample = conventionalScope
+		? '"<type>(<scope>): "'
+		: '"<type>: "';
+
 	return [
 		'Conventional title subject rules:',
-		'- The subject text after "<type>(<scope>): " must not start with the same type word.',
+		`- The subject text after ${titlePrefixExample} must not start with the same type word.`,
 		'- Example to avoid: "refactor: refactor ...".',
 		'- The selected prefix must stay semantically consistent with the subject action; never output titles like "feat: refactor ..." or "fix: refactor ...".',
 		'- For alphabetic languages (for example English), capitalize the first word in the subject.',
@@ -253,12 +264,12 @@ export const generatePrompt = (
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',
 		`IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. The commit title must not exceed ${maxLength} characters. Respond with ONLY the commit message text.`,
 		'Be specific: include concrete details (package names, versions, functionality) rather than generic statements.',
-		getChangedFilesInstruction(options.changedFiles),
-		getAnchorRequirementInstruction(type, conventionalScope),
-		getConventionalSubjectInstruction(type),
-		getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
-		specifyCommitFormat(type, options.conventionalFormat, includeDetails),
-		getDefaultStyleInstructions(),
-		getCustomInstructions(options.instructions),
-	].filter(Boolean).join('\n');
+			getChangedFilesInstruction(options.changedFiles),
+			getAnchorRequirementInstruction(type, conventionalScope),
+			getConventionalSubjectInstruction(type, conventionalScope),
+			getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
+			specifyCommitFormat(type, options.conventionalFormat, conventionalScope, includeDetails),
+			getDefaultStyleInstructions(),
+			getCustomInstructions(options.instructions),
+		].filter(Boolean).join('\n');
 };

@@ -687,6 +687,32 @@ const harmonizeConventionalMessage = (
 		: harmonizedTitle;
 };
 
+export const stripConventionalScopeFromMessage = (
+	message: string,
+	includeDetails: boolean,
+) => {
+	const { title, body } = includeDetails
+		? splitCommitMessage(message)
+		: { title: message.trim(), body: '' };
+
+	const match = title.match(conventionalTitleTypeScopePattern);
+	if (!match) {
+		return message;
+	}
+
+	const [, rawType = '', , rawSubject = ''] = match;
+	const normalizedType = rawType.trim().toLowerCase();
+	const normalizedSubject = rawSubject.trim();
+	if (!normalizedType || !normalizedSubject) {
+		return message;
+	}
+
+	const normalizedTitle = `${normalizedType}: ${normalizedSubject}`;
+	return includeDetails
+		? formatCommitMessage(normalizedTitle, body)
+		: normalizedTitle;
+};
+
 const conventionalScopedTitlePattern = /^([a-z]+)\(([^)\s][^)]*)\):\s*\S/i;
 
 const getMessageTitle = (
@@ -938,19 +964,28 @@ export const generateCommitMessage = async (
 			)),
 		);
 
-		const harmonizedMessages = type === 'conventional'
-			? localizedMessages.map(message => harmonizeConventionalMessage(
-				message,
-				includeDetails,
-				conventionalTypeLookup,
-			))
-			: localizedMessages;
+			const harmonizedMessages = type === 'conventional'
+				? localizedMessages.map(message => harmonizeConventionalMessage(
+					message,
+					includeDetails,
+					conventionalTypeLookup,
+				))
+				: localizedMessages;
+			const scopeNormalizedMessages = (
+				type === 'conventional'
+				&& options.conventionalScope === false
+			)
+				? harmonizedMessages.map(message => stripConventionalScopeFromMessage(
+					message,
+					includeDetails,
+				))
+				: harmonizedMessages;
 
-		return deduplicateMessages(
-			harmonizedMessages
-				.filter(Boolean),
-		);
-	};
+			return deduplicateMessages(
+				scopeNormalizedMessages
+					.filter(Boolean),
+			);
+		};
 
 	try {
 		const firstPassMessages = await requestMessages();
