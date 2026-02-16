@@ -44,4 +44,4 @@ jobs:
         run: |
           VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
           TAG="v$VERSION"
-          gh workflow run release.yml --ref "$TAG"
+          gh workflow run release.yml --ref main -f "tag=$TAG"

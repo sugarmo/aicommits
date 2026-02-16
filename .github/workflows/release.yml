@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish (for example v1.13.2)
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -16,8 +21,21 @@ jobs:
       id-token: write
 
     steps:
+      - name: Resolve release target
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=refs/tags/${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -35,7 +53,8 @@ jobs:
 
       - name: Verify tag matches package version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_NAME="${{ steps.target.outputs.tag }}"
+          TAG_VERSION="${TAG_NAME#v}"
           PKG_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
             echo "Tag version ($TAG_VERSION) does not match package version ($PKG_VERSION)."
