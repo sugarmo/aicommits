@@ -22,7 +22,7 @@ export const createAnimatedStatusSpinner = (): AnimatedStatusSpinner => {
 			return;
 		}
 
-		process.stdout.write(`\r\x1b[2K${line}`);
+		process.stdout.write(`\r\u001B[2K${line}`);
 	};
 
 	const renderFrame = () => {
@@ -70,7 +70,7 @@ export const createAnimatedStatusSpinner = (): AnimatedStatusSpinner => {
 			if (process.stdout.isTTY) {
 				const lines = nextMessage.split(/\r?\n/);
 				const firstLine = lines.shift() ?? '';
-				process.stdout.write(`\r\x1b[2K${green('◆')}  ${firstLine}\n`);
+				process.stdout.write(`\r\u001B[2K${green('◆')}  ${firstLine}\n`);
 				for (const line of lines) {
 					process.stdout.write(`${bar}  ${line}\n`);
 				}

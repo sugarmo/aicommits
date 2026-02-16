@@ -1,6 +1,9 @@
 {
 	"name": "@sugarmo/aicommits",
 	"version": "1.13.0",
+	"publishConfig": {
+		"access": "public"
+	},
 	"description": "Writes your git commit messages for you with AI",
 	"keywords": [
 		"ai",
@@ -11,9 +14,6 @@
 	"repository": "sugarmo/aicommits",
 	"author": "Hassan El Mghari (@nutlope)",
 	"type": "module",
-	"publishConfig": {
-		"access": "public"
-	},
 	"files": [
 		"dist"
 	],
@@ -23,14 +23,15 @@
 	},
 	"scripts": {
 		"prepare": "simple-git-hooks",
-		"build": "pkgroll --minify",
+		"build": "pnpm lint && pkgroll --minify",
 		"lint": "eslint --cache .",
 		"type-check": "tsc",
 		"test": "tsx tests",
 		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"simple-git-hooks": {
-		"pre-commit": "pnpm lint-staged"
+		"pre-commit": "pnpm lint-staged",
+		"pre-push": "pnpm build"
 	},
 	"lint-staged": {
 		"*.ts": "eslint --cache"

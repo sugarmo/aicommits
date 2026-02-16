@@ -34,7 +34,7 @@ const formatThinkingDuration = (elapsedMs: number) => {
 
 const createThinkingTicker = (spinner: AnimatedStatusSpinner, model: string) => {
 	const startedAt = Date.now();
-	const intervalMs = 1_000;
+	const intervalMs = 1000;
 
 	const render = () => spinner.update(`Thinking for ${formatThinkingDuration(Date.now() - startedAt)} (${model})`);
 	render();

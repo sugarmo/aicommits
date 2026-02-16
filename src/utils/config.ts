@@ -27,13 +27,13 @@ const isObjectRecord = (value: unknown): value is Record<string, unknown> => (
 	&& !Array.isArray(value)
 );
 
-const asRawConfigValue = (value: unknown) => (
+const asRawConfigValue = (value: unknown) => ((
 	typeof value === 'string'
 	|| typeof value === 'number'
 	|| typeof value === 'boolean'
 )
 	? value
-	: undefined;
+	: undefined);
 
 const localeAliases: Record<string, string> = {
 	cn: 'zh-CN',
@@ -176,7 +176,7 @@ const configParsers = {
 		parseAssert('locale', normalized.length > 0, 'Cannot be empty');
 		parseAssert(
 			'locale',
-			/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(normalized),
+			/^[a-z]{2,3}(?:-[a-z\d]{2,8})*$/i.test(normalized),
 			'Must be a valid locale (letters and dashes/underscores). You can consult the list of codes in: https://wikipedia.org/wiki/List_of_ISO_639-1_codes',
 		);
 		return normalized;
@@ -335,7 +335,7 @@ const stripTomlComment = (line: string) => {
 	let inDoubleQuote = false;
 	let escaping = false;
 
-	for (let index = 0; index < line.length; index++) {
+	for (let index = 0; index < line.length; index += 1) {
 		const character = line[index];
 
 		if (character === '\\' && inDoubleQuote && !escaping) {
@@ -387,7 +387,7 @@ const parseTomlScalar = (rawValue: string): RawConfigValue => {
 		return value.slice(1, -1);
 	}
 
-	if (/^(true|false)$/i.test(value)) {
+	if (/^(?:true|false)$/i.test(value)) {
 		return value.toLowerCase() === 'true';
 	}
 
@@ -499,9 +499,7 @@ const stringifyTomlConfig = (config: RawConfig) => {
 		}
 
 		if (pathSegments.length > 0 && scalarLines.length > 0) {
-			sectionBlocks.push(`[${pathSegments.join('.')}]`);
-			sectionBlocks.push(...scalarLines);
-			sectionBlocks.push('');
+			sectionBlocks.push(`[${pathSegments.join('.')}]`, ...scalarLines, '');
 		}
 
 		for (const [childKey, childSection] of childSections) {
@@ -614,7 +612,7 @@ const readProfileConfigValue = (
 		return undefined;
 	}
 
-	const profiles = config.profiles;
+	const { profiles } = config;
 	if (!isObjectRecord(profiles)) {
 		return undefined;
 	}

@@ -206,11 +206,9 @@ const getAnchorRequirementInstruction = (
 		];
 
 		if (conventionalScope) {
-			rules.push('- For conventional commits, include scope using the primary file/class/module when possible (for example: refactor(RecentScrollshotController): ...).');
-			rules.push('- Only omit scope when there is no clear dominant anchor.');
+			rules.push('- For conventional commits, include scope using the primary file/class/module when possible (for example: refactor(RecentScrollshotController): ...).', '- Only omit scope when there is no clear dominant anchor.');
 		} else {
-			rules.push('- Do not include scope in conventional titles.');
-			rules.push('- Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
+			rules.push('- Do not include scope in conventional titles.', '- Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
 		}
 
 		return rules.join('\n');
@@ -264,12 +262,12 @@ export const generatePrompt = (
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',
 		`IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. The commit title must not exceed ${maxLength} characters. Respond with ONLY the commit message text.`,
 		'Be specific: include concrete details (package names, versions, functionality) rather than generic statements.',
-			getChangedFilesInstruction(options.changedFiles),
-			getAnchorRequirementInstruction(type, conventionalScope),
-			getConventionalSubjectInstruction(type, conventionalScope),
-			getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
-			specifyCommitFormat(type, options.conventionalFormat, conventionalScope, includeDetails),
-			getDefaultStyleInstructions(),
-			getCustomInstructions(options.instructions),
-		].filter(Boolean).join('\n');
+		getChangedFilesInstruction(options.changedFiles),
+		getAnchorRequirementInstruction(type, conventionalScope),
+		getConventionalSubjectInstruction(type, conventionalScope),
+		getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
+		specifyCommitFormat(type, options.conventionalFormat, conventionalScope, includeDetails),
+		getDefaultStyleInstructions(),
+		getCustomInstructions(options.instructions),
+	].filter(Boolean).join('\n');
 };

@@ -58,8 +58,7 @@ export default () => (async () => {
 		return;
 	}
 
-	const config = await getConfig({
-	});
+	const config = await getConfig({});
 	const promptOptions = {
 		includeDetails: config.details,
 		detailsStyle: config['details-style'],

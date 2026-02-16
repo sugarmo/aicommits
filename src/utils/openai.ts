@@ -28,7 +28,7 @@ const httpsPost = async (
 	json: unknown,
 	timeout: number,
 	proxy?: string,
-	port = 443,
+	port?: number,
 	onChunk?: (chunk: string) => void,
 ) => new Promise<{
 	request: ClientRequest;
@@ -38,7 +38,7 @@ const httpsPost = async (
 	const postContent = JSON.stringify(json);
 
 	const options: RequestOptions = {
-		port,
+		port: port ?? 443,
 		hostname,
 		path,
 		method: 'POST',
@@ -123,7 +123,7 @@ const createChatCompletion = async (
 				continue;
 			}
 
-			const delta = (choice as Record<string, unknown>).delta;
+			const { delta } = choice as Record<string, unknown>;
 			if (typeof delta !== 'object' || delta === null) {
 				continue;
 			}
@@ -281,7 +281,7 @@ const createChatCompletion = async (
 				reasoningParts: [],
 			};
 
-			const delta = choiceRecord.delta;
+			const { delta } = choiceRecord;
 			if (typeof delta === 'object' && delta !== null) {
 				const deltaRecord = delta as Record<string, unknown>;
 				if (typeof deltaRecord.role === 'string') {
@@ -361,7 +361,7 @@ const createMinimalChatRequest = (
 const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, '\n');
 
 const stripCodeFences = (text: string) => {
-	const fencedContent = text.match(/```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/);
+	const fencedContent = text.match(/```[\w-]*\n([\s\S]*?)```/);
 
 	if (fencedContent?.[1]) {
 		return fencedContent[1].trim();
@@ -378,7 +378,7 @@ const sanitizeTitle = (title: string) => title
 
 const stripBodyLabels = (text: string) => text
 	.replace(/^\s*(body|description|details)\s*:\s*/i, '')
-	.replace(/^\s*(主要改动包括|主要改动|改动包括)\s*[:：]\s*/i, '')
+	.replace(/^\s*(主要改动包括|主要改动|改动包括)\s*[:：]\s*/, '')
 	.replace(/^\s*(impact|影响)\s*[:：]\s*/i, '');
 
 const splitListFragments = (line: string) => line
@@ -411,6 +411,28 @@ const normalizeListItem = (item: string) => {
 	return normalized;
 };
 
+const parseLeadingBullet = (line: string) => {
+	const trimmed = line.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	if (
+		trimmed.startsWith('- ')
+		|| trimmed.startsWith('* ')
+		|| trimmed.startsWith('• ')
+	) {
+		return trimmed.slice(2).trim() || undefined;
+	}
+
+	const numberedPrefixMatch = /^\d+[.)]\s+/.exec(trimmed);
+	if (!numberedPrefixMatch?.[0]) {
+		return undefined;
+	}
+
+	return trimmed.slice(numberedPrefixMatch[0].length).trim() || undefined;
+};
+
 const normalizeDetailedBody = (body: string) => {
 	if (!body.trim()) {
 		return {
@@ -435,9 +457,9 @@ const normalizeDetailedBody = (body: string) => {
 	const proseLines: string[] = [];
 
 	for (const line of lines) {
-		const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
-		if (bullet?.[1]) {
-			listItems.push(bullet[1].trim());
+		const bullet = parseLeadingBullet(line);
+		if (bullet) {
+			listItems.push(bullet);
 		} else {
 			proseLines.push(line.trim());
 			listItems.push(...splitListFragments(line));
@@ -555,10 +577,10 @@ export type GenerateCommitMessageOptions = PromptOptions & {
 const normalizeKey = (value: string) => value.trim().toLowerCase();
 
 const deduplicateMessages = (array: string[]) => Array.from(new Set(array));
-const chineseCharacterPattern = /[\u3400-\u9fff]/;
-const conventionalTitlePrefixPattern = /^([a-z]+(?:\([^)]+\))?:\s*)(.+)$/i;
-const conventionalTitleTypeScopePattern = /^([a-z]+)(\([^)]+\))?:\s*(.+)$/i;
-const conventionalLeadingTypePattern = /^([a-z]+)\b(?:\s+|[:\-])/i;
+const chineseCharacterPattern = /[\u3400-\u9FFF]/;
+const conventionalTitlePrefixPattern = /^([a-z]+(?:\([^)]+\))?: )(.+)$/i;
+const conventionalTitleTypeScopePattern = /^([a-z]+)(\([^)]+\))?: (.+)$/i;
+const conventionalLeadingTypePattern = /^([a-z]+)(?:\s+|[:-])/i;
 const conventionalTypeAliasMap: Record<string, string> = {
 	feature: 'feat',
 	features: 'feat',
@@ -631,12 +653,18 @@ const stripLeadingTypeWord = (
 	typeName: string,
 	lookup: Map<string, string>,
 ) => {
-	const match = subject.trim().match(/^([a-z]+)\b(?:\s+|[:\-])+(.*)$/i);
-	if (!match?.[1] || !match[2]) {
+	const trimmedSubject = subject.trim();
+	const leadingTypeMatch = trimmedSubject.match(/^([a-z]+)(?:\s+|[:-])/i);
+	if (!leadingTypeMatch?.[1]) {
 		return subject;
 	}
 
-	const resolvedLeadingType = resolveConventionalTypeToken(match[1], lookup);
+	const stripped = trimmedSubject.slice(leadingTypeMatch[0].length).trim();
+	if (!stripped) {
+		return subject;
+	}
+
+	const resolvedLeadingType = resolveConventionalTypeToken(leadingTypeMatch[1], lookup);
 	if (!resolvedLeadingType) {
 		return subject;
 	}
@@ -645,7 +673,6 @@ const stripLeadingTypeWord = (
 		return subject;
 	}
 
-	const stripped = match[2].trim();
 	return stripped || subject;
 };
 
@@ -713,7 +740,7 @@ export const stripConventionalScopeFromMessage = (
 		: normalizedTitle;
 };
 
-const conventionalScopedTitlePattern = /^([a-z]+)\(([^)\s][^)]*)\):\s*\S/i;
+const conventionalScopedTitlePattern = /^[a-z]+\([^)\s][^)]*\):\s*\S/i;
 
 const getMessageTitle = (
 	message: string,
@@ -872,16 +899,17 @@ export const generateCommitMessage = async (
 	type: CommitType,
 	timeout: number,
 	proxy?: string,
-	options: GenerateCommitMessageOptions = {},
+	options?: GenerateCommitMessageOptions,
 	baseUrl?: string,
 ) => {
-	const includeDetails = options.includeDetails ?? false;
-	const detailsStyle: DetailsStyle = options.detailsStyle ?? 'paragraph';
-	const conventionalTypeLookup = createConventionalTypeLookup(options.conventionalTypes);
+	const resolvedOptions = options ?? {};
+	const includeDetails = resolvedOptions.includeDetails ?? false;
+	const detailsStyle: DetailsStyle = resolvedOptions.detailsStyle ?? 'paragraph';
+	const conventionalTypeLookup = createConventionalTypeLookup(resolvedOptions.conventionalTypes);
 	const enforceConventionalScope = (
 		type === 'conventional'
-		&& (options.conventionalScope ?? true)
-		&& supportsConventionalScope(options.conventionalFormat)
+		&& (resolvedOptions.conventionalScope ?? true)
+		&& supportsConventionalScope(resolvedOptions.conventionalFormat)
 	);
 
 	const requestMessages = async (
@@ -889,21 +917,21 @@ export const generateCommitMessage = async (
 		includeUserInstructions = true,
 	) => {
 		const mergedInstructions = [
-			includeUserInstructions ? options.instructions?.trim() : '',
+			includeUserInstructions ? resolvedOptions.instructions?.trim() : '',
 			extraInstructions?.trim(),
 		]
 			.filter(Boolean)
 			.join('\n');
 
-			const promptOptions: PromptOptions = {
-				includeDetails: options.includeDetails,
-				detailsStyle: options.detailsStyle,
-				instructions: mergedInstructions,
-				conventionalFormat: options.conventionalFormat,
-				conventionalTypes: options.conventionalTypes,
-				conventionalScope: options.conventionalScope,
-				changedFiles: options.changedFiles,
-			};
+		const promptOptions: PromptOptions = {
+			includeDetails: resolvedOptions.includeDetails,
+			detailsStyle: resolvedOptions.detailsStyle,
+			instructions: mergedInstructions,
+			conventionalFormat: resolvedOptions.conventionalFormat,
+			conventionalTypes: resolvedOptions.conventionalTypes,
+			conventionalScope: resolvedOptions.conventionalScope,
+			changedFiles: resolvedOptions.changedFiles,
+		};
 
 		const requestPayloadMessages = [
 			{
@@ -927,7 +955,7 @@ export const generateCommitMessage = async (
 				timeout,
 				proxy,
 				baseUrl,
-				event => options.onStreamEvent?.({
+				event => resolvedOptions.onStreamEvent?.({
 					phase: 'message',
 					...event,
 				}),
@@ -957,35 +985,35 @@ export const generateCommitMessage = async (
 				timeout,
 				proxy,
 				baseUrl,
-				event => options.onStreamEvent?.({
+				event => resolvedOptions.onStreamEvent?.({
 					phase: 'title-rewrite',
 					...event,
 				}),
 			)),
 		);
 
-			const harmonizedMessages = type === 'conventional'
-				? localizedMessages.map(message => harmonizeConventionalMessage(
-					message,
-					includeDetails,
-					conventionalTypeLookup,
-				))
-				: localizedMessages;
-			const scopeNormalizedMessages = (
-				type === 'conventional'
-				&& options.conventionalScope === false
-			)
-				? harmonizedMessages.map(message => stripConventionalScopeFromMessage(
-					message,
-					includeDetails,
-				))
-				: harmonizedMessages;
+		const harmonizedMessages = type === 'conventional'
+			? localizedMessages.map(message => harmonizeConventionalMessage(
+				message,
+				includeDetails,
+				conventionalTypeLookup,
+			))
+			: localizedMessages;
+		const scopeNormalizedMessages = (
+			type === 'conventional'
+				&& resolvedOptions.conventionalScope === false
+		)
+			? harmonizedMessages.map(message => stripConventionalScopeFromMessage(
+				message,
+				includeDetails,
+			))
+			: harmonizedMessages;
 
-			return deduplicateMessages(
-				scopeNormalizedMessages
-					.filter(Boolean),
-			);
-		};
+		return deduplicateMessages(
+			scopeNormalizedMessages
+				.filter(Boolean),
+		);
+	};
 
 	try {
 		const firstPassMessages = await requestMessages();
