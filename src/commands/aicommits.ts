@@ -56,6 +56,7 @@ export default async (
 	conventionalTypes: string | undefined,
 	conventionalScope: string | undefined,
 	baseUrl: string | undefined,
+	autoConfirm: boolean | undefined,
 	rawArgv: string[],
 ) => (async () => {
 	intro(bgCyan(black(' aicommits ')));
@@ -177,28 +178,46 @@ export default async (
 	}
 
 	let message: string;
-	if (messages.length === 1) {
+
+	if (autoConfirm) {
 		[message] = messages;
-		const confirmed = await confirm({
-			message: `Use this commit message?\n\n   ${message}\n`,
-		});
-
-		if (!confirmed || isCancel(confirmed)) {
-			outro('Commit cancelled');
-			return;
-		}
 	} else {
-		const selected = await select({
-			message: `Pick a commit message to use: ${dim('(Ctrl+c to exit)')}`,
-			options: messages.map(value => ({ label: value, value })),
-		});
+		try {
+			if (messages.length === 1) {
+				[message] = messages;
+				const confirmed = await confirm({
+					message: `Use this commit message?\n\n   ${message}\n`,
+				});
 
-		if (isCancel(selected)) {
-			outro('Commit cancelled');
-			return;
+				if (!confirmed || isCancel(confirmed)) {
+					outro('Commit cancelled');
+					return;
+				}
+			} else {
+				const selected = await select({
+					message: `Pick a commit message to use: ${dim('(Ctrl+c to exit)')}`,
+					options: messages.map(value => ({ label: value, value })),
+				});
+
+				if (isCancel(selected)) {
+					outro('Commit cancelled');
+					return;
+				}
+
+				message = selected as string;
+			}
+		} catch (error) {
+			const messageText = error instanceof Error ? error.message : '';
+			const isTtyInitializationError = messageText.includes('TTY initialization failed')
+				|| messageText.includes('uv_tty_init returned EINVAL')
+				|| messageText.includes('ERR_TTY_INIT_FAILED');
+
+			if (isTtyInitializationError) {
+				throw new KnownError('Interactive terminal initialization failed in this environment. Re-run with `--confirm` or `--yes` to skip prompts.');
+			}
+
+			throw error;
 		}
-
-		message = selected as string;
 	}
 
 	await execa('git', ['commit', '-m', message, ...rawArgv]);

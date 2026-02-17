@@ -3,6 +3,15 @@ import { createFixture, createGit } from '../../utils.js';
 
 export default testSuite(({ describe }) => {
 	describe('Error cases', async ({ test }) => {
+		test('Shows non-interactive commit flags in help output', async () => {
+			const { fixture, aicommits } = await createFixture();
+			const { stdout, exitCode } = await aicommits(['--help'], { reject: false });
+			expect(exitCode).toBe(0);
+			expect(stdout).toMatch('--confirm');
+			expect(stdout).toMatch('--yes');
+			await fixture.rm();
+		});
+
 		test('Fails on non-Git project', async () => {
 			const { fixture, aicommits } = await createFixture();
 			const { stdout, exitCode } = await aicommits([], { reject: false });

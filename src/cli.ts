@@ -74,6 +74,17 @@ cli(
 				type: String,
 				description: 'API base URL for chat completions (for example https://api.openai.com/v1)',
 			},
+			confirm: {
+				type: Boolean,
+				description: 'Skip interactive confirmation/selection prompts and use the first generated message',
+				alias: 'y',
+				default: false,
+			},
+			yes: {
+				type: Boolean,
+				description: 'Alias for --confirm',
+				default: false,
+			},
 			version: {
 				type: Boolean,
 				description: 'Show version number',
@@ -114,6 +125,7 @@ cli(
 				argv.flags.conventionalTypes,
 				argv.flags.conventionalScope,
 				argv.flags.baseUrl,
+				argv.flags.confirm || argv.flags.yes,
 				rawArgv,
 			);
 		}

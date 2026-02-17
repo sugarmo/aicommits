@@ -74,6 +74,14 @@ aicommits --generate <i> # or -g <i>
 
 > Warning: this uses more tokens, meaning it costs more.
 
+#### Non-interactive environments (Git GUI, external clients, CI)
+
+If your environment does not provide an interactive TTY, skip prompts explicitly:
+
+```sh
+aicommits --confirm # or -y / --yes
+```
+
 #### Generate title + details
 
 If you want both a commit title and body:
