@@ -8,7 +8,7 @@ export class KnownError extends Error {}
 
 const indent = '    ';
 
-const fallbackBugReportUrl = 'https://github.com/Nutlope/aicommits/issues/new/choose';
+const fallbackBugReportUrl = 'https://github.com/sugarmo/aicommits/issues/new/choose';
 
 const normalizeRepositoryPath = (value: string) => value
 	.trim()

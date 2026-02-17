@@ -12,7 +12,7 @@
 	],
 	"license": "MIT",
 	"repository": "sugarmo/aicommits",
-	"author": "Hassan El Mghari (@nutlope)",
+	"author": "Steven Mok (@sugarmo)",
 	"type": "module",
 	"files": [
 		"dist"
