@@ -1,17 +1,40 @@
+import path from 'path';
 import { execa } from 'execa';
 import { KnownError } from './error.js';
 
-export const assertGitRepo = async () => {
-	const { stdout, failed } = await execa('git', ['rev-parse', '--show-toplevel'], { reject: false });
+const runGitRevParse = async (
+	args: string[],
+	cwd?: string,
+) => {
+	const { stdout, failed } = await execa('git', ['rev-parse', ...args], {
+		reject: false,
+		cwd,
+	});
 
 	if (failed) {
 		throw new KnownError('The current directory must be a Git repository!');
 	}
 
-	return stdout;
+	return stdout.trim();
 };
 
-const excludeFromDiff = (path: string) => `:(exclude)${path}`;
+export const assertGitRepo = async () => runGitRevParse(['--show-toplevel']);
+
+export const getGitPath = async (
+	gitPath: string,
+	cwd?: string,
+) => {
+	const workingDirectory = cwd || process.cwd();
+	const resolvedGitPath = await runGitRevParse(['--git-path', gitPath], workingDirectory);
+
+	if (path.isAbsolute(resolvedGitPath)) {
+		return resolvedGitPath;
+	}
+
+	return path.resolve(workingDirectory, resolvedGitPath);
+};
+
+const excludeFromDiff = (filePath: string) => `:(exclude)${filePath}`;
 
 const filesToExclude = [
 	'package-lock.json',

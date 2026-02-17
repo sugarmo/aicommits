@@ -1,4 +1,6 @@
+import fs from 'fs/promises';
 import path from 'path';
+import { execa } from 'execa';
 import { testSuite, expect } from 'manten';
 import {
 	createFixture,
@@ -37,6 +39,59 @@ export default testSuite(({ describe }) => {
 			expect(stdout).toMatch('Hook installed');
 
 			expect(await fixture.exists('.git/hooks/prepare-commit-msg')).toBe(true);
+
+			await fixture.rm();
+		});
+
+		test('installs in Git submodule', async () => {
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'submodule-origin': {
+					'README.md': 'submodule source',
+				},
+			});
+			const git = await createGit(fixture.path);
+
+			const submoduleOriginPath = path.join(fixture.path, 'submodule-origin');
+			const submoduleOriginGit = await createGit(submoduleOriginPath);
+			await submoduleOriginGit('add', ['README.md']);
+			await submoduleOriginGit('commit', ['-m', 'Initial submodule commit']);
+
+			await git(
+				'submodule',
+				[
+					'add',
+					submoduleOriginPath,
+					'SharedPackages',
+				],
+				{
+					env: {
+						GIT_ALLOW_PROTOCOL: 'file',
+					},
+				},
+			);
+
+			const submodulePath = path.join(fixture.path, 'SharedPackages');
+			const { stdout } = await aicommits(['hook', 'install'], {
+				cwd: submodulePath,
+			});
+			expect(stdout).toMatch('Hook installed');
+
+			const { stdout: hooksPathOutput } = await execa(
+				'git',
+				['rev-parse', '--git-path', 'hooks'],
+				{
+					cwd: submodulePath,
+				},
+			);
+			const hooksPath = (
+				path.isAbsolute(hooksPathOutput)
+					? hooksPathOutput
+					: path.resolve(submodulePath, hooksPathOutput)
+			);
+			const hookScriptPath = path.join(hooksPath, 'prepare-commit-msg');
+			const hookScriptContent = await fs.readFile(hookScriptPath, 'utf8');
+			expect(hookScriptContent).toMatch('process.argv.splice(2, 0, "prepare-commit-msg-hook")');
 
 			await fixture.rm();
 		});

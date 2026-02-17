@@ -3,13 +3,13 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { green, red } from 'kolorist';
 import { command } from 'cleye';
-import { assertGitRepo } from '../utils/git.js';
+import { assertGitRepo, getGitPath } from '../utils/git.js';
 import { fileExists } from '../utils/fs.js';
 import { KnownError, handleCliError } from '../utils/error.js';
 
 const hookName = 'prepare-commit-msg';
-const hookRelativePath = `.git/hooks/${hookName}`;
 const hookCommandName = 'prepare-commit-msg-hook';
+const hookPathSuffix = `/hooks/${hookName}`;
 
 const hookPath = fileURLToPath(new URL('cli.mjs', import.meta.url));
 const hookScript = `
@@ -21,7 +21,7 @@ import(${JSON.stringify(pathToFileURL(hookPath))})
 export const isCalledFromGitHook = (
 	(process.argv[1] || '')
 		.replace(/\\/g, '/') // Replace Windows back slashes with forward slashes
-		.endsWith(`/${hookRelativePath}`)
+		.endsWith(hookPathSuffix)
 );
 
 const isManagedHookScript = async (absoluteHookPath: string) => {
@@ -42,7 +42,8 @@ export default command({
 		const gitRepoPath = await assertGitRepo();
 		const { installUninstall: mode } = argv._;
 
-		const absoluteHookPath = path.join(gitRepoPath, hookRelativePath);
+		const hooksPath = await getGitPath('hooks', gitRepoPath);
+		const absoluteHookPath = path.join(hooksPath, hookName);
 		const hookExists = await fileExists(absoluteHookPath);
 		if (mode === 'install') {
 			if (hookExists) {
