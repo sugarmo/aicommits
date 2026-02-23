@@ -100,6 +100,7 @@ aicommits --all # or -a
 - `--generate` or `-g`: Number of messages to generate (default: **1**)
 - `--exclude` or `-x`: Files to exclude from AI analysis
 - `--type` or `-t`: Git commit message format (default: **plain**). Supports `plain`, `conventional`, and `gitmoji`
+- `--prompt` or `-p`: Custom prompt to guide the LLM behavior (e.g., specific language, style instructions)
 - `--yes` or `-y`: Skip confirmation when committing after message generation (default: **false**)
 
 #### Generate multiple recommendations
@@ -129,6 +130,24 @@ aicommits --type plain         # or -t plain (default)
 ```
 
 This feature is useful if your project follows a specific commit message standard or if you're using tools that rely on these commit formats.
+
+#### Custom Prompts
+
+You can customize the LLM's behavior with the `--prompt` flag to guide commit message generation:
+
+```sh
+# Write commit messages in a specific language
+aicommits -p "Write commit messages in Italian"
+
+# Focus on specific aspects of the changes
+aicommits -p "Focus on performance implications of changes"
+
+# Use a specific style or tone
+aicommits -p "Use technical jargon suitable for senior developers"
+
+# Include specific details in the message
+aicommits -p "Always mention the specific function names and file paths changed"
+```
 
 ### Git hook
 
