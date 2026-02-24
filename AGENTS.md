@@ -23,3 +23,9 @@ Add `--show-reasoning` and `--base-url` CLI options and wire them through comman
 Introduce a custom animated status spinner with ASCII frame animation and consistent status rendering.
 
 Update commit and hook flows to react to streamed reasoning phases while preserving commit selection UX.
+
+## Release Flow
+
+When `package.json` version is updated and the change is pushed to remote, CI will automatically create the corresponding Git tag.
+
+The npm publish pipeline is triggered by that Git tag, so version bumps in `package.json` are the source of truth for releases.
