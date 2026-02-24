@@ -18,7 +18,8 @@ export default testSuite(({ describe, test }) => {
 				conventionalTypes: '{"feature":"Introduce a new capability","bugfix":"Fix a defect"}',
 			});
 
-			expect(prompt).toMatch('Provide both a title and a body.');
+			expect(prompt).toMatch('If the title is already sufficient, output only the title.');
+			expect(prompt).toMatch('Do not add any explanation for omitting the body.');
 			expect(prompt).toMatch('<type>(<scope>): <subject>');
 			expect(prompt).toMatch('"feature": "Introduce a new capability"');
 			expect(prompt).toMatch('Additional instructions from user:');

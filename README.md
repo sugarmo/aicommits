@@ -82,9 +82,9 @@ If your environment does not provide an interactive TTY, skip prompts explicitly
 aicommits --confirm # or -y / --yes
 ```
 
-#### Generate title + details
+#### Generate title + optional details
 
-If you want both a commit title and body:
+Enable `details` when you want a body only when the title is not clear enough on its own:
 
 ```sh
 aicommits --details
@@ -300,7 +300,7 @@ aicommits config set type=conventional
 
 Default: `false`
 
-Set this to `true` to generate title and body:
+Set this to `true` to allow optional body details. If the title already explains the change clearly, it can still return title only:
 
 ```sh
 aicommits config set details=true

@@ -123,8 +123,10 @@ const getDetailsInstruction = (
 
 	if (detailsStyle === 'list') {
 		return [
-			'Provide both a title and a body.',
-			'Output format must be exactly:',
+			'When details are enabled, first decide whether the title alone already clearly explains what changed.',
+			'If the title is already sufficient, output only the title.',
+			'Do not add any explanation for omitting the body.',
+			'If the title is not sufficient, output format must be exactly:',
 			'<title>',
 			'',
 			'<body>',
@@ -136,8 +138,10 @@ const getDetailsInstruction = (
 	}
 
 	return [
-		'Provide both a title and a body.',
-		'Output format must be exactly:',
+		'When details are enabled, first decide whether the title alone already clearly explains what changed.',
+		'If the title is already sufficient, output only the title.',
+		'Do not add any explanation for omitting the body.',
+		'If the title is not sufficient, output format must be exactly:',
 		'<title>',
 		'',
 		'<body>',
