@@ -59,6 +59,7 @@ const shortenCommitMessage = async (
 			temperature: 0.2,
 			maxRetries: 2,
 			maxOutputTokens: 500,
+			abortSignal: abortController.signal,
 		});
 		clearTimeout(timeoutId);
 		return sanitizeMessage(result.text);
@@ -106,9 +107,16 @@ export const generateCommitMessage = async (
 				temperature: 0.4,
 				maxRetries: 2,
 				maxOutputTokens: 2000,
-			}).finally(() => clearTimeout(timeoutId))
+				abortSignal: abortController.signal,
+			})
 		);
-		const results = await Promise.all(promises);
+		const results = await (async () => {
+			try {
+				return await Promise.all(promises);
+			} finally {
+				clearTimeout(timeoutId);
+			}
+		})();
 		let texts = results.map((r) => r.text);
 		let messages = deduplicateMessages(
 			texts.map((text: string) => sanitizeMessage(text))
@@ -229,6 +237,7 @@ Do not add thanks, explanations, or any text outside the commit message.`;
 			temperature: 0.4,
 			maxRetries: 2,
 			maxOutputTokens: 2000,
+			abortSignal: abortController.signal,
 		});
 
 		clearTimeout(timeoutId);
