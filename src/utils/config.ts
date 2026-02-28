@@ -287,7 +287,9 @@ const configParsers = {
 			return 0;
 		}
 
-		parseAssert('context-window', typeof contextWindow === 'string' || typeof contextWindow === 'number', 'Must be an integer or use K/M suffix');
+		if (typeof contextWindow !== 'string' && typeof contextWindow !== 'number') {
+			throw new KnownError('Invalid config property context-window: Must be an integer or use K/M suffix');
+		}
 
 		const parsed = parseContextWindowTokens(contextWindow);
 		parseAssert('context-window', Number.isInteger(parsed), 'Must be an integer');
