@@ -81,6 +81,46 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
 		});
 
+		test('uses global summary style by default', () => {
+			const prompt = generatePrompt('en', 72, '', {
+				includeDetails: true,
+				detailsStyle: 'list',
+				changedFiles: [
+					'src/core/engine.ts',
+					'src/core/pipeline.ts',
+				],
+			});
+
+			expect(prompt).toMatch('initiative/subsystem level');
+			expect(prompt).toMatch('avoid per-file or per-function enumeration');
+			expect(prompt).toMatch('prefer 2-4 theme-level bullets');
+			expect(prompt).not.toMatch('Large change-set mode:');
+		});
+
+		test('switches to high-level summary mode for very large change sets', () => {
+			const prompt = generatePrompt('en', 72, 'conventional', {
+				includeDetails: true,
+				detailsStyle: 'list',
+				changedFiles: Array.from(
+					{ length: 14 },
+					(_, index) => `src/modules/mod-${index}.ts`,
+				),
+			});
+
+			expect(prompt).toMatch('Large change-set mode:');
+			expect(prompt).toMatch('overall intent coverage');
+			expect(prompt).toMatch('Do not try to list every module/class/file touched.');
+			expect(prompt).toMatch('use 2-4 high-level bullets grouped by themes');
+		});
+
+		test('enables high-level summary mode when diff was compacted', () => {
+			const prompt = generatePrompt('en', 72, '', {
+				diffWasCompacted: true,
+			});
+
+			expect(prompt).toMatch('Large change-set mode:');
+		});
+
 		test('supports enabling conventional scope emphasis', () => {
 			const prompt = generatePrompt('en', 72, 'conventional', {
 				conventionalScope: true,

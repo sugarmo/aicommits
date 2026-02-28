@@ -10,6 +10,7 @@ export type PromptOptions = {
 	conventionalTypes?: string;
 	conventionalScope?: boolean;
 	changedFiles?: string[];
+	diffWasCompacted?: boolean;
 	lockedConventionalType?: string;
 };
 
@@ -197,6 +198,65 @@ const getChangedFilesInstruction = (changedFiles?: string[]) => {
 	].join('\n');
 };
 
+const isLargeChangeSet = (
+	changedFiles: string[] | undefined,
+	diffWasCompacted: boolean | undefined,
+) => (
+	diffWasCompacted === true
+	|| (changedFiles?.length ?? 0) > 12
+);
+
+const getSpecificityInstruction = (largeChangeSet: boolean) => (
+	largeChangeSet
+		? 'Be specific at the initiative/subsystem level, and avoid exhaustive module-by-module or file-by-file enumeration.'
+		: 'Be specific at the initiative/subsystem level with concrete architecture/API impact, and avoid per-file or per-function enumeration.'
+);
+
+const getThemeGroupingInstruction = (
+	includeDetails: boolean,
+	detailsStyle: DetailsStyle,
+) => {
+	if (!includeDetails) {
+		return '';
+	}
+
+	return detailsStyle === 'list'
+		? 'When body is needed, prefer 2-4 theme-level bullets (for example architecture, API surface, tooling/config, tests) instead of a file-by-file change log.'
+		: 'When body is needed, prefer 2-4 theme-level sentences (for example architecture, API surface, tooling/config, tests) instead of a file-by-file walkthrough.';
+};
+
+const getLargeChangeSetInstruction = (
+	includeDetails: boolean,
+	detailsStyle: DetailsStyle,
+	largeChangeSet: boolean,
+) => {
+	if (!largeChangeSet) {
+		return '';
+	}
+
+	const rules = [
+		'Large change-set mode:',
+		'- The diff spans many changes. Optimize for overall intent coverage, not exhaustive enumeration.',
+		'- Title must capture the single overarching initiative/outcome across the repo.',
+		'- Do not try to list every module/class/file touched.',
+		'- Mention at most 1-2 representative anchors only when they clarify the main theme.',
+		'- This mode overrides normal fine-grained detail expectations above.',
+	];
+
+	if (includeDetails) {
+		if (detailsStyle === 'list') {
+			rules.push(
+				'- If body is included, use 2-4 high-level bullets grouped by themes (for example API surface, architecture flow, tooling/config, tests).',
+				'- Each bullet should summarize a theme, not a per-file change log.',
+			);
+		} else {
+			rules.push('- If body is included, use 2-4 high-level sentences grouped by themes, not a per-file walkthrough.');
+		}
+	}
+
+	return rules.join('\n');
+};
+
 const getAnchorRequirementInstruction = (
 	type: CommitType,
 	conventionalScope: boolean,
@@ -257,6 +317,7 @@ export const generatePrompt = (
 	const includeDetails = options.includeDetails ?? false;
 	const detailsStyle = options.detailsStyle ?? 'paragraph';
 	const conventionalScope = options.conventionalScope ?? false;
+	const largeChangeSet = isLargeChangeSet(options.changedFiles, options.diffWasCompacted);
 
 	return [
 		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',
@@ -265,7 +326,9 @@ export const generatePrompt = (
 		`Commit title must be a maximum of ${maxLength} characters.`,
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',
 		`IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. The commit title must not exceed ${maxLength} characters. Respond with ONLY the commit message text.`,
-		'Be specific: include concrete details (package names, versions, functionality) rather than generic statements.',
+		getSpecificityInstruction(largeChangeSet),
+		getThemeGroupingInstruction(includeDetails, detailsStyle),
+		getLargeChangeSetInstruction(includeDetails, detailsStyle, largeChangeSet),
 		getChangedFilesInstruction(options.changedFiles),
 		getAnchorRequirementInstruction(type, conventionalScope),
 		getConventionalSubjectInstruction(type, conventionalScope),

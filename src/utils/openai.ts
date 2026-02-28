@@ -105,9 +105,11 @@ const createChatCompletion = async (
 	proxy?: string,
 	baseUrl?: string,
 	onStreamEvent?: CompletionStreamCallback,
+	requestOptions?: Record<string, unknown>,
 ) => {
 	const requestBody = {
 		...json,
+		...requestOptions,
 		stream: true,
 	} as CreateChatCompletionRequest;
 
@@ -572,6 +574,40 @@ export type CommitMessageStreamEvent = CompletionStreamEvent & {
 };
 export type GenerateCommitMessageOptions = PromptOptions & {
 	onStreamEvent?: (event: CommitMessageStreamEvent) => void;
+	requestOptionsJson?: string;
+	contextWindowTokens?: number;
+};
+
+const parseRequestOptionsJson = (requestOptionsJson?: string) => {
+	if (!requestOptionsJson?.trim()) {
+		return {};
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(requestOptionsJson);
+	} catch {
+		throw new KnownError('Invalid config property request-options: Must be valid JSON');
+	}
+
+	if (
+		typeof parsed !== 'object'
+		|| parsed === null
+		|| Array.isArray(parsed)
+	) {
+		throw new KnownError('Invalid config property request-options: Must be a JSON object');
+	}
+
+	const requestOptions = {
+		...parsed as Record<string, unknown>,
+	};
+
+	// These fields are managed by internal generation logic.
+	delete requestOptions.model;
+	delete requestOptions.messages;
+	delete requestOptions.stream;
+
+	return requestOptions;
 };
 
 const normalizeKey = (value: string) => value.trim().toLowerCase();
@@ -792,6 +828,7 @@ const rewriteTitleToLocale = async (
 	proxy?: string,
 	baseUrl?: string,
 	onStreamEvent?: CompletionStreamCallback,
+	requestOptions?: Record<string, unknown>,
 ) => {
 	const { prefix, subject } = splitConventionalTitle(title);
 
@@ -822,6 +859,7 @@ const rewriteTitleToLocale = async (
 		proxy,
 		baseUrl,
 		onStreamEvent,
+		requestOptions,
 	);
 
 	const rewritten = completion.choices
@@ -859,6 +897,7 @@ const enforceTitleLocale = async (
 	proxy?: string,
 	baseUrl?: string,
 	onStreamEvent?: CompletionStreamCallback,
+	requestOptions?: Record<string, unknown>,
 ) => {
 	const { title, body } = includeDetails
 		? splitCommitMessage(message)
@@ -879,6 +918,7 @@ const enforceTitleLocale = async (
 			proxy,
 			baseUrl,
 			onStreamEvent,
+			requestOptions,
 		);
 		return includeDetails
 			? formatCommitMessage(rewrittenTitle, body)
@@ -887,6 +927,146 @@ const enforceTitleLocale = async (
 		// Keep original message when rewrite fails.
 		return message;
 	}
+};
+
+const maxPromptDiffChars = 120_000;
+const minPromptDiffChars = 1024;
+const estimatedDiffCharsPerToken = 3;
+const promptOverheadReserveTokens = 900;
+const completionReserveTokens = 700;
+const titleRewriteReserveTokens = 450;
+const contextWindowSafetyRatio = 0.85;
+const diffCompactionNotice = '[Diff compacted to fit model context. Each file is represented with abbreviated hunks when needed.]';
+const patchCompactionMarker = '@@ ... patch content truncated ... @@';
+
+export const resolveDiffBudgetChars = (
+	contextWindowTokens = 0,
+) => {
+	if (!Number.isInteger(contextWindowTokens) || contextWindowTokens <= 0) {
+		return maxPromptDiffChars;
+	}
+
+	const reservedTokens = (
+		promptOverheadReserveTokens
+		+ completionReserveTokens
+		+ titleRewriteReserveTokens
+	);
+	const availableTokens = Math.floor(
+		(contextWindowTokens - reservedTokens) * contextWindowSafetyRatio,
+	);
+	const diffTokensBudget = Math.max(128, availableTokens);
+
+	return Math.max(minPromptDiffChars, diffTokensBudget * estimatedDiffCharsPerToken);
+};
+
+const splitDiffIntoPatches = (diff: string) => {
+	const patchHeaderRegex = /^diff --git .+$/gm;
+	const headerMatches = Array.from(diff.matchAll(patchHeaderRegex));
+	if (headerMatches.length === 0) {
+		return [diff];
+	}
+
+	const patches: string[] = [];
+	const firstHeaderIndex = headerMatches[0]?.index ?? 0;
+	if (firstHeaderIndex > 0) {
+		const preamble = diff.slice(0, firstHeaderIndex).trim();
+		if (preamble) {
+			patches.push(preamble);
+		}
+	}
+
+	for (const [index, match] of headerMatches.entries()) {
+		const start = match.index ?? 0;
+		const end = headerMatches[index + 1]?.index ?? diff.length;
+		const patch = diff.slice(start, end).trim();
+		if (patch) {
+			patches.push(patch);
+		}
+	}
+
+	return patches;
+};
+
+const compactPatchToBudget = (
+	patch: string,
+	budget: number,
+) => {
+	if (budget <= 0) {
+		return '';
+	}
+
+	if (patch.length <= budget) {
+		return patch;
+	}
+
+	const markerCost = patchCompactionMarker.length + 2;
+	if (budget <= markerCost) {
+		return patch.slice(0, budget);
+	}
+
+	const contentBudget = budget - markerCost;
+	const targetHeadBudget = Math.floor(contentBudget * 0.7);
+	const minHeadBudget = Math.min(60, contentBudget);
+	const minTailBudget = Math.min(40, Math.max(0, contentBudget - minHeadBudget));
+	const headBudget = Math.max(
+		minHeadBudget,
+		Math.min(targetHeadBudget, contentBudget - minTailBudget),
+	);
+	const tailBudget = contentBudget - headBudget;
+	if (tailBudget <= 0) {
+		return patch.slice(0, budget);
+	}
+
+	const head = patch.slice(0, headBudget).trimEnd();
+	const tail = patch.slice(-tailBudget).trimStart();
+
+	if (!tail) {
+		return patch.slice(0, budget);
+	}
+
+	return `${head}\n${patchCompactionMarker}\n${tail}`
+		.slice(0, budget);
+};
+
+export const compactDiffForPrompt = (
+	diff: string,
+	maxChars = maxPromptDiffChars,
+) => {
+	const normalized = normalizeLineEndings(diff).trim();
+	if (!normalized) {
+		return normalized;
+	}
+
+	if (maxChars <= 0) {
+		return '';
+	}
+
+	const noticeBudget = diffCompactionNotice.length + 2;
+	if (normalized.length <= maxChars) {
+		return normalized;
+	}
+
+	if (maxChars <= noticeBudget) {
+		return normalized.slice(0, maxChars);
+	}
+
+	const availableBudget = maxChars - noticeBudget;
+	const patches = splitDiffIntoPatches(normalized);
+	if (patches.length <= 1) {
+		const compactedSingle = compactPatchToBudget(normalized, availableBudget);
+		return `${compactedSingle}\n\n${diffCompactionNotice}`;
+	}
+
+	const patchSeparator = '\n\n';
+	const separatorCost = patchSeparator.length * Math.max(0, patches.length - 1);
+	const availableForPatches = Math.max(1, availableBudget - separatorCost);
+	const perPatchBudget = Math.max(1, Math.floor(availableForPatches / patches.length));
+	const compactedPatches = patches
+		.map(patch => compactPatchToBudget(patch, perPatchBudget))
+		.filter(Boolean);
+	const compactedDiff = compactedPatches.join(patchSeparator);
+
+	return `${compactedDiff}\n\n${diffCompactionNotice}`;
 };
 
 export const generateCommitMessage = async (
@@ -905,6 +1085,10 @@ export const generateCommitMessage = async (
 	const resolvedOptions = options ?? {};
 	const includeDetails = resolvedOptions.includeDetails ?? false;
 	const detailsStyle: DetailsStyle = resolvedOptions.detailsStyle ?? 'paragraph';
+	const requestOptions = parseRequestOptionsJson(resolvedOptions.requestOptionsJson);
+	const diffBudgetChars = resolveDiffBudgetChars(resolvedOptions.contextWindowTokens);
+	const compactedDiff = compactDiffForPrompt(diff, diffBudgetChars);
+	const diffWasCompacted = compactedDiff.includes(diffCompactionNotice);
 	const conventionalTypeLookup = createConventionalTypeLookup(resolvedOptions.conventionalTypes);
 	const enforceConventionalScope = (
 		type === 'conventional'
@@ -931,6 +1115,7 @@ export const generateCommitMessage = async (
 			conventionalTypes: resolvedOptions.conventionalTypes,
 			conventionalScope: resolvedOptions.conventionalScope,
 			changedFiles: resolvedOptions.changedFiles,
+			diffWasCompacted,
 		};
 
 		const requestPayloadMessages = [
@@ -940,7 +1125,7 @@ export const generateCommitMessage = async (
 			},
 			{
 				role: 'user' as const,
-				content: diff,
+				content: compactedDiff,
 			},
 		];
 
@@ -959,6 +1144,7 @@ export const generateCommitMessage = async (
 					phase: 'message',
 					...event,
 				}),
+				requestOptions,
 			)),
 		);
 
@@ -989,6 +1175,7 @@ export const generateCommitMessage = async (
 					phase: 'title-rewrite',
 					...event,
 				}),
+				requestOptions,
 			)),
 		);
 

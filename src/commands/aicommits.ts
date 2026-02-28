@@ -100,6 +100,8 @@ export default async (
 		conventionalFormat: config['conventional-format'],
 		conventionalTypes: config['conventional-types'],
 		conventionalScope: config['conventional-scope'],
+		requestOptionsJson: config['request-options'],
+		contextWindowTokens: config['context-window'],
 		changedFiles: staged.files,
 	};
 

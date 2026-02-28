@@ -277,6 +277,31 @@ Default: `10000` (10 seconds)
 aicommits config set timeout=20000 # 20s
 ```
 
+#### context-window
+
+Default: `0` (auto/default compaction budget)
+
+Set model context size (tokens) so diff compaction can scale to your provider/model window and reduce truncation on large commits.
+
+When set, aicommits reserves part of the window for system prompt and output, then compacts the diff to fit the remaining budget.
+
+```sh
+aicommits config set context-window=32768
+```
+
+You can also use `K` / `M` suffixes:
+
+```sh
+aicommits config set context-window=32K
+aicommits config set context-window=1M
+```
+
+Use `0` to switch back to auto mode:
+
+```sh
+aicommits config set context-window=0
+```
+
 #### max-length
 The maximum character length of the generated commit message.
 
@@ -375,6 +400,19 @@ When disabled (default), conventional commits prefer `type: subject`.
 
 ```sh
 aicommits config set conventional-scope=true
+```
+
+#### request-options
+
+Default: empty
+
+Raw JSON object merged into the Chat Completions request body.
+
+Use this for provider-specific fields (for example, disabling reasoning/thinking when supported).  
+Internal fields `model`, `messages`, and `stream` are controlled by aicommits and cannot be overridden.
+
+```sh
+aicommits config set request-options='{"thinking":{"type":"disabled"}}'
 ```
 
 ## How it works

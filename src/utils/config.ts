@@ -115,6 +115,47 @@ const parseConventionalTypes = (rawConventionalTypes: string) => {
 	return JSON.stringify(Object.fromEntries(normalizedEntries));
 };
 
+const parseRequestOptions = (rawRequestOptions: string) => {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(rawRequestOptions);
+	} catch {
+		throw new KnownError('Invalid config property request-options: Must be valid JSON');
+	}
+
+	parseAssert(
+		'request-options',
+		typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed),
+		'Must be a JSON object',
+	);
+
+	return JSON.stringify(parsed);
+};
+
+const parseContextWindowTokens = (contextWindow: string | number) => {
+	if (typeof contextWindow === 'number') {
+		parseAssert('context-window', Number.isInteger(contextWindow), 'Must be an integer or use K/M suffix');
+		return contextWindow;
+	}
+
+	const normalized = contextWindow.trim();
+	const match = normalized.match(/^([+-]?\d+)([kKmM])?$/);
+	parseAssert('context-window', Boolean(match), 'Must be an integer or use K/M suffix');
+	if (!match?.[1]) {
+		return Number.NaN;
+	}
+
+	const base = Number(match[1]);
+	const suffix = match[2]?.toLowerCase();
+	let multiplier = 1;
+	if (suffix === 'k') {
+		multiplier = 1024;
+	} else if (suffix === 'm') {
+		multiplier = 1024 * 1024;
+	}
+	return base * multiplier;
+};
+
 const configParsers = {
 	'api-key'(key?: unknown) {
 		if (!key) {
@@ -241,6 +282,19 @@ const configParsers = {
 
 		return parsed;
 	},
+	'context-window'(contextWindow?: unknown) {
+		if (!contextWindow) {
+			return 0;
+		}
+
+		parseAssert('context-window', typeof contextWindow === 'string' || typeof contextWindow === 'number', 'Must be an integer or use K/M suffix');
+
+		const parsed = parseContextWindowTokens(contextWindow);
+		parseAssert('context-window', Number.isInteger(parsed), 'Must be an integer');
+		parseAssert('context-window', parsed === 0 || parsed >= 1024, 'Must be 0 (auto) or greater than or equal to 1024 tokens');
+
+		return parsed;
+	},
 	'max-length'(maxLength?: unknown) {
 		if (!maxLength) {
 			return 50;
@@ -304,6 +358,17 @@ const configParsers = {
 	},
 	'conventional-scope'(conventionalScope?: unknown) {
 		return parseBoolean('conventional-scope', conventionalScope, false);
+	},
+	'request-options'(requestOptions?: unknown) {
+		if (requestOptions === undefined || requestOptions === null || requestOptions === '') {
+			return '';
+		}
+
+		if (typeof requestOptions !== 'string') {
+			throw new KnownError('Invalid config property request-options: Must be valid JSON');
+		}
+
+		return parseRequestOptions(requestOptions);
 	},
 } as const;
 

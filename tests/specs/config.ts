@@ -215,6 +215,71 @@ export default testSuite(({ describe }) => {
 			});
 		});
 
+		await describe('request-options', ({ test }) => {
+			test('validates request-options as JSON object', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'request-options=not-json'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be valid json/i);
+			});
+
+			test('rejects non-object request-options', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'request-options=[1,2,3]'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be a json object/i);
+			});
+
+			test('stores request-options payload', async () => {
+				const requestOptions = 'request-options={"thinking":{"type":"disabled"}}';
+				await aicommits(['config', 'set', requestOptions]);
+
+				const get = await aicommits(['config', 'get', 'request-options']);
+				expect(get.stdout).toBe(requestOptions);
+			});
+		});
+
+		await describe('context-window', ({ test }) => {
+			test('must be an integer', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'context-window=abc'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be an integer/i);
+			});
+
+			test('must be greater than or equal to 1024 tokens', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'context-window=512'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be 0 \(auto\) or greater than or equal to 1024 tokens/i);
+			});
+
+			test('stores numeric and suffix context-window values and supports zero reset', async () => {
+				const contextWindow = 'context-window=32768';
+				await aicommits(['config', 'set', contextWindow]);
+
+				const stored = await aicommits(['config', 'get', 'context-window']);
+				expect(stored.stdout).toBe(contextWindow);
+
+				await aicommits(['config', 'set', 'context-window=32K']);
+				const fromK = await aicommits(['config', 'get', 'context-window']);
+				expect(fromK.stdout).toBe('context-window=32768');
+
+				await aicommits(['config', 'set', 'context-window=1M']);
+				const fromM = await aicommits(['config', 'get', 'context-window']);
+				expect(fromM.stdout).toBe('context-window=1048576');
+
+				await aicommits(['config', 'set', 'context-window=0']);
+
+				const reset = await aicommits(['config', 'get', 'context-window']);
+				expect(reset.stdout).toBe('context-window=0');
+			});
+		});
+
 		await describe('conventional-scope', ({ test }) => {
 			test('defaults to false and can be toggled', async () => {
 				const get = await aicommits(['config', 'get', 'conventional-scope']);
