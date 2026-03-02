@@ -79,7 +79,8 @@ export const generateCommitMessage = async (
 	maxLength: number,
 	type: CommitType,
 	timeout: number,
-	customPrompt?: string
+	customPrompt?: string,
+	headers?: Record<string, string>
 ) => {
 	if (process.env.DEBUG) {
 		console.log('Diff being sent to AI:');
@@ -94,6 +95,7 @@ export const generateCommitMessage = async (
 						name: 'custom',
 						apiKey,
 						baseURL: baseUrl,
+						headers,
 				  });
 
 		const abortController = new AbortController();
@@ -208,7 +210,8 @@ export const combineCommitMessages = async (
 	maxLength: number,
 	type: CommitType,
 	timeout: number,
-	customPrompt?: string
+	customPrompt?: string,
+	headers?: Record<string, string>
 ) => {
 	try {
 		const provider =
@@ -218,6 +221,7 @@ export const combineCommitMessages = async (
 						name: 'custom',
 						apiKey,
 						baseURL: baseUrl,
+						headers,
 				  });
 
 		const abortController = new AbortController();

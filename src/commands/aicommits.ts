@@ -126,6 +126,7 @@ export default async (
 		try {
 			const baseUrl = providerInstance.getBaseUrl();
 			const apiKey = providerInstance.getApiKey() || '';
+			const providerHeaders = providerInstance.getHeaders();
 
 			if (isChunking) {
 				// Split files into chunks
@@ -162,7 +163,8 @@ export default async (
 							config['max-length'],
 							config.type,
 							timeout,
-							customPrompt
+							customPrompt,
+							providerHeaders
 						);
 						chunkMessages.push(...result.messages);
 						if (result.usage) {
@@ -192,7 +194,8 @@ export default async (
 					config['max-length'],
 					config.type,
 					timeout,
-					customPrompt
+					customPrompt,
+					providerHeaders
 				);
 				messages = combineResult.messages;
 				if (combineResult.usage) {
@@ -229,7 +232,8 @@ export default async (
 					config['max-length'],
 					config.type,
 					timeout,
-					customPrompt
+					customPrompt,
+					providerHeaders
 				);
 				messages = result.messages;
 				usage = result.usage;

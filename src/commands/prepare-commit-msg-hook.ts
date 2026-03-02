@@ -51,6 +51,7 @@ export default () =>
 
 		const baseUrl = providerInstance.getBaseUrl();
 		const apiKey = providerInstance.getApiKey() || '';
+		const providerHeaders = providerInstance.getHeaders();
 
 		// Use config timeout, or default per provider
 		const timeout =
@@ -72,7 +73,9 @@ export default () =>
 				config.generate,
 				config['max-length'],
 				config.type,
-				timeout
+				timeout,
+				undefined,
+				providerHeaders
 			);
 			messages = result.messages;
 		} finally {
