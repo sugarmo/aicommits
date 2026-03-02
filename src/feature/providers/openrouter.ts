@@ -11,4 +11,8 @@ export const OpenRouterProvider: ProviderDef = {
 			.map((m: any) => m.id),
 	defaultModels: ['openai/gpt-oss-20b:free', 'z-ai/glm-4.5-air:free'],
 	requiresApiKey: true,
+	headers: {
+		'HTTP-Referer': 'https://github.com/nutlope/aicommits',
+		'X-Title': 'aicommits',
+	},
 };

@@ -9,6 +9,7 @@ export type ProviderDef = {
 	modelsFilter?: (models: any[]) => string[];
 	defaultModels: string[];
 	requiresApiKey: boolean;
+	headers?: Record<string, string>;
 };
 
 export class Provider {
@@ -109,6 +110,10 @@ export class Provider {
 
 	getHighlightedModels(): string[] {
 		return this.def.defaultModels;
+	}
+
+	getHeaders(): Record<string, string> | undefined {
+		return this.def.headers;
 	}
 
 	validateConfig(): { valid: boolean; errors: string[] } {

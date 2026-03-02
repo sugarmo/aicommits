@@ -126,6 +126,7 @@ export default async (
 		try {
 			const baseUrl = providerInstance.getBaseUrl();
 			const apiKey = providerInstance.getApiKey() || '';
+			const providerHeaders = providerInstance.getHeaders();
 
 			if (isChunking) {
 				// Split files into chunks
@@ -136,9 +137,9 @@ export default async (
 
 				const chunkMessages: string[] = [];
 				let totalUsage = {
-					promptTokens: 0,
-					completionTokens: 0,
-					totalTokens: 0,
+					prompt_tokens: 0,
+					completion_tokens: 0,
+					total_tokens: 0,
 				};
 
 				for (const chunk of chunks) {
@@ -149,7 +150,7 @@ export default async (
 						let diffToUse = chunkDiff.diff;
 						if (diffToUse.length > maxDiffLength) {
 							diffToUse =
-								diffToUse.substring(diffToUse.length - maxDiffLength) +
+								diffToUse.substring(0, maxDiffLength) +
 								'\n\n[Diff truncated due to size]';
 						}
 						const result = await generateCommitMessage(
@@ -162,15 +163,23 @@ export default async (
 							config['max-length'],
 							config.type,
 							timeout,
-							customPrompt
+							customPrompt,
+							providerHeaders
 						);
 						chunkMessages.push(...result.messages);
 						if (result.usage) {
-							totalUsage.promptTokens +=
-								(result.usage as any).promptTokens || 0;
-							totalUsage.completionTokens +=
-								(result.usage as any).completionTokens || 0;
-							totalUsage.totalTokens += (result.usage as any).totalTokens || 0;
+							totalUsage.prompt_tokens +=
+								(result.usage as any).prompt_tokens ||
+								(result.usage as any).promptTokens ||
+								0;
+							totalUsage.completion_tokens +=
+								(result.usage as any).completion_tokens ||
+								(result.usage as any).completionTokens ||
+								0;
+							totalUsage.total_tokens +=
+								(result.usage as any).total_tokens ||
+								(result.usage as any).totalTokens ||
+								0;
 						}
 					}
 				}
@@ -185,16 +194,23 @@ export default async (
 					config['max-length'],
 					config.type,
 					timeout,
-					customPrompt
+					customPrompt,
+					providerHeaders
 				);
 				messages = combineResult.messages;
 				if (combineResult.usage) {
-					totalUsage.promptTokens +=
-						(combineResult.usage as any).promptTokens || 0;
-					totalUsage.completionTokens +=
-						(combineResult.usage as any).completionTokens || 0;
-					totalUsage.totalTokens +=
-						(combineResult.usage as any).totalTokens || 0;
+					totalUsage.prompt_tokens +=
+						(combineResult.usage as any).prompt_tokens ||
+						(combineResult.usage as any).promptTokens ||
+						0;
+					totalUsage.completion_tokens +=
+						(combineResult.usage as any).completion_tokens ||
+						(combineResult.usage as any).completionTokens ||
+						0;
+					totalUsage.total_tokens +=
+						(combineResult.usage as any).total_tokens ||
+						(combineResult.usage as any).totalTokens ||
+						0;
 				}
 				usage = totalUsage;
 			} else {
@@ -203,7 +219,7 @@ export default async (
 				let diffToUse = staged.diff;
 				if (diffToUse.length > maxDiffLength) {
 					diffToUse =
-						diffToUse.substring(diffToUse.length - maxDiffLength) +
+						diffToUse.substring(0, maxDiffLength) +
 						'\n\n[Diff truncated due to size]';
 				}
 				const result = await generateCommitMessage(
@@ -216,7 +232,8 @@ export default async (
 					config['max-length'],
 					config.type,
 					timeout,
-					customPrompt
+					customPrompt,
+					providerHeaders
 				);
 				messages = result.messages;
 				usage = result.usage;
