@@ -7,6 +7,7 @@ describe('aicommits', ({ runTestSuite }) => {
 	runTestSuite(import('./specs/prompt.js'));
 	runTestSuite(import('./specs/diff-compaction.js'));
 	runTestSuite(import('./specs/conventional-scope.js'));
+	runTestSuite(import('./specs/git.js'));
 	runTestSuite(import('./specs/git-hook.js'));
 	runTestSuite(import('./specs/hook-compat.js'));
 });

@@ -7,7 +7,7 @@ import {
 } from '@clack/prompts';
 import {
 	assertGitRepo,
-	getStagedDiff,
+	getDiffForRequest,
 	getDetectedMessage,
 } from '../utils/git.js';
 import { getConfig } from '../utils/config.js';
@@ -69,15 +69,15 @@ export default async (
 		await execa('git', ['add', '--update']);
 	}
 
-	detectingFiles.start('Detecting staged files');
-	const staged = await getStagedDiff(excludeFiles);
+	detectingFiles.start('Detecting git changes');
+	const changes = await getDiffForRequest(excludeFiles);
 
-	if (!staged) {
-		detectingFiles.stop('Detecting staged files');
+	if (!changes) {
+		detectingFiles.stop('Detecting git changes');
 		throw new KnownError('No staged changes found. Stage your changes manually, or automatically stage all changes with the `--all` flag.');
 	}
 
-	detectingFiles.stop(`${getDetectedMessage(staged.files)}:\n${staged.files.map(file => `  ${file}`).join('\n')
+	detectingFiles.stop(`${getDetectedMessage(changes.files, changes.source)}:\n${changes.files.map(file => `  ${file}`).join('\n')
 		}`);
 
 	const config = await getConfig({
@@ -102,7 +102,7 @@ export default async (
 		conventionalScope: config['conventional-scope'],
 		requestOptionsJson: config['request-options'],
 		contextWindowTokens: config['context-window'],
-		changedFiles: staged.files,
+		changedFiles: changes.files,
 	};
 
 	const showReasoningStream = config['show-reasoning'] === true;
@@ -154,7 +154,7 @@ export default async (
 			config['api-key'],
 			config.model,
 			config.locale,
-			staged.diff,
+			changes.diff,
 			config.generate,
 			config['max-length'],
 			config.type,
@@ -220,6 +220,12 @@ export default async (
 
 			throw error;
 		}
+	}
+
+	// In fallback mode, stage uncommitted files only after message acceptance,
+	// right before running `git commit`.
+	if (changes.source === 'uncommitted') {
+		await execa('git', ['add', '--all', '--', ...changes.files]);
 	}
 
 	await execa('git', ['commit', '-m', message, ...rawArgv]);
