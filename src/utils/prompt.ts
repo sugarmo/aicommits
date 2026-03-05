@@ -226,6 +226,10 @@ const getChangedFilesInstruction = (changedFiles?: string[]) => {
 	].join('\n');
 };
 
+const hasUsableChangedFiles = (changedFiles?: string[]) => Boolean(
+	changedFiles?.some(file => file.trim().length > 0),
+);
+
 const isLargeChangeSet = (
 	changedFiles: string[] | undefined,
 	diffWasCompacted: boolean | undefined,
@@ -294,6 +298,7 @@ const getLargeChangeSetInstruction = (
 const getAnchorRequirementInstruction = (
 	type: CommitType,
 	conventionalScope: boolean,
+	includeModuleHint: boolean,
 ) => {
 	if (type === 'conventional') {
 		const rules = [
@@ -303,21 +308,35 @@ const getAnchorRequirementInstruction = (
 			'- Avoid titles that only mention function names without file/class context.',
 		];
 
+		if (includeModuleHint) {
+			rules.push('- If possible, include the affected module/subproject in the title based on changed file paths.');
+		}
+
 		if (conventionalScope) {
 			rules.push('- For conventional commits, include scope using the primary file/class/module when possible (for example: refactor(RecentScrollshotController): ...).', '- Only omit scope when there is no clear dominant anchor.');
 		} else {
 			rules.push('- Do not include scope in conventional titles.', '- Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
 		}
 
+		if (includeModuleHint) {
+			rules.push('- Module info can appear in scope or subject, as long as the title stays concise.');
+		}
+
 		return rules.join('\n');
 	}
 
-	return [
+	const rules = [
 		'Title anchor requirement:',
 		'- The commit title must mention at least one concrete anchor from the diff (file, class/type, module, or subsystem).',
 		'- Prefer class/type/module/subsystem names over raw file paths when possible.',
 		'- Avoid titles that only mention function names without file/class context.',
-	].join('\n');
+	];
+
+	if (includeModuleHint) {
+		rules.push('- If possible, include the affected module/subproject in the title based on changed file paths.');
+	}
+
+	return rules.join('\n');
 };
 
 const getConventionalSubjectInstruction = (
@@ -353,6 +372,7 @@ export const generatePrompt = (
 	const detailColumnGuide = options.detailColumnGuide ?? 72;
 	const conventionalScope = options.conventionalScope ?? false;
 	const largeChangeSet = isLargeChangeSet(options.changedFiles, options.diffWasCompacted);
+	const includeModuleHint = hasUsableChangedFiles(options.changedFiles);
 
 	return [
 		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',
@@ -365,7 +385,7 @@ export const generatePrompt = (
 		getThemeGroupingInstruction(includeDetails, detailsStyle),
 		getLargeChangeSetInstruction(includeDetails, detailsStyle, largeChangeSet),
 		getChangedFilesInstruction(options.changedFiles),
-		getAnchorRequirementInstruction(type, conventionalScope),
+		getAnchorRequirementInstruction(type, conventionalScope, includeModuleHint),
 		getConventionalSubjectInstruction(type, conventionalScope),
 		getCommitTypeInstruction(type, options.conventionalTypes, options.lockedConventionalType),
 		specifyCommitFormat(type, options.conventionalFormat, conventionalScope, includeDetails),

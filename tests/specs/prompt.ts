@@ -95,8 +95,29 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('RecentScrollshotController.swift');
 			expect(prompt).toMatch('Title anchor requirement:');
 			expect(prompt).toMatch('must mention at least one concrete anchor');
+			expect(prompt).toMatch('If possible, include the affected module/subproject in the title based on changed file paths.');
 			expect(prompt).toMatch('Do not include scope in conventional titles.');
 			expect(prompt).toMatch('Use "<type>: <subject>" format instead of "<type>(<scope>): <subject>".');
+			expect(prompt).toMatch('Module info can appear in scope or subject, as long as the title stays concise.');
+		});
+
+		test('adds module/subproject hint for plain mode when changed files exist', () => {
+			const prompt = generatePrompt('en', 72, '', {
+				changedFiles: [
+					'packages/auth/src/x.ts',
+					'apps/web/src/a.ts',
+				],
+			});
+
+			expect(prompt).toMatch('Title anchor requirement:');
+			expect(prompt).toMatch('If possible, include the affected module/subproject in the title based on changed file paths.');
+		});
+
+		test('keeps prompt stable without changed files for module hint', () => {
+			const prompt = generatePrompt('en', 72, '');
+
+			expect(prompt).not.toMatch('If possible, include the affected module/subproject in the title based on changed file paths.');
+			expect(prompt).toMatch('Provide only the title, no description or body.');
 		});
 
 		test('uses global summary style by default', () => {
