@@ -345,6 +345,16 @@ Allowed values: `paragraph`, `list`
 aicommits config set details-style=list
 ```
 
+#### detail-column-guide
+
+Default: `72`
+
+Guidance target for where detail/body lines should wrap.
+
+```sh
+aicommits config set detail-column-guide=88
+```
+
 #### show-reasoning
 
 Default: `false`

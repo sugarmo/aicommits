@@ -62,6 +62,7 @@ export default () => (async () => {
 	const promptOptions = {
 		includeDetails: config.details,
 		detailsStyle: config['details-style'],
+		detailColumnGuide: config['detail-column-guide'],
 		instructions: config.instructions,
 		conventionalFormat: config['conventional-format'],
 		conventionalTypes: config['conventional-types'],

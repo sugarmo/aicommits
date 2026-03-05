@@ -14,6 +14,7 @@ export default testSuite(({ describe, test }) => {
 		test('supports details and custom conventional instructions', () => {
 			const prompt = generatePrompt('en', 72, 'conventional', {
 				includeDetails: true,
+				detailColumnGuide: 68,
 				instructions: 'Use a friendly but direct tone.',
 				conventionalFormat: '<type>(<scope>): <subject>',
 				conventionalTypes: '{"feature":"Introduce a new capability","bugfix":"Fix a defect"}',
@@ -21,6 +22,7 @@ export default testSuite(({ describe, test }) => {
 
 			expect(prompt).toMatch('If the title is already sufficient, output only the title.');
 			expect(prompt).toMatch('Do not add any explanation for omitting the body.');
+			expect(prompt).toMatch('Wrap body text around column 68 when reasonable.');
 			expect(prompt).toMatch('<type>(<scope>): <subject>');
 			expect(prompt).toMatch('"feature": "Introduce a new capability"');
 			expect(prompt).toMatch('Additional instructions from user:');
@@ -60,10 +62,12 @@ export default testSuite(({ describe, test }) => {
 			const prompt = generatePrompt('en', 72, 'conventional', {
 				includeDetails: true,
 				detailsStyle: 'list',
+				detailColumnGuide: 66,
 			});
 
 			expect(prompt).toMatch('The body must be 3-6 concise bullet points.');
 			expect(prompt).toMatch('Each bullet must start with "- ".');
+			expect(prompt).toMatch('Wrap bullet lines around column 66 when reasonable.');
 		});
 
 		test('injects changed files and anchor requirement', () => {

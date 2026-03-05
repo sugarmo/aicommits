@@ -530,6 +530,118 @@ const formatCommitMessage = (title: string, body: string) => (
 		: title
 );
 
+const defaultDetailColumnGuide = 72;
+const minimumDetailColumnGuide = 20;
+const listItemPrefix = '- ';
+const listItemContinuationPrefix = '  ';
+
+const getCodePointLength = (value: string) => Array.from(value).length;
+
+const resolveDetailColumnGuide = (detailColumnGuide: number) => (
+	Number.isInteger(detailColumnGuide) && detailColumnGuide >= minimumDetailColumnGuide
+		? detailColumnGuide
+		: defaultDetailColumnGuide
+);
+
+const wrapTextByColumns = (
+	text: string,
+	firstLineColumn: number,
+	nextLineColumn = firstLineColumn,
+) => {
+	const normalized = text.trim();
+	if (!normalized) {
+		return [] as string[];
+	}
+
+	const firstColumn = Math.max(1, firstLineColumn);
+	const nextColumn = Math.max(1, nextLineColumn);
+	const tokens = normalized.split(/\s+/u).filter(Boolean);
+	const lines: string[] = [];
+	let currentLine = '';
+	let currentColumn = firstColumn;
+	let firstLineUsed = false;
+
+	const pushLine = (line: string) => {
+		lines.push(line);
+		if (!firstLineUsed) {
+			firstLineUsed = true;
+			currentColumn = nextColumn;
+		}
+	};
+
+	for (const token of tokens) {
+		if (!currentLine) {
+			currentLine = token;
+			continue;
+		}
+
+		const nextLine = `${currentLine} ${token}`;
+		if (getCodePointLength(nextLine) <= currentColumn) {
+			currentLine = nextLine;
+			continue;
+		}
+
+		pushLine(currentLine);
+		currentLine = token;
+	}
+
+	if (currentLine) {
+		pushLine(currentLine);
+	}
+
+	return lines;
+};
+
+const formatListItemWithColumnGuide = (
+	item: string,
+	detailColumnGuide: number,
+) => {
+	const trimmed = item.trim();
+	if (!trimmed) {
+		return listItemPrefix.trimEnd();
+	}
+
+	const firstContentColumn = Math.max(
+		1,
+		detailColumnGuide - getCodePointLength(listItemPrefix),
+	);
+	const continuationContentColumn = Math.max(
+		1,
+		detailColumnGuide - getCodePointLength(listItemContinuationPrefix),
+	);
+	const wrapped = wrapTextByColumns(
+		trimmed,
+		firstContentColumn,
+		continuationContentColumn,
+	);
+
+	if (wrapped.length === 0) {
+		return listItemPrefix.trimEnd();
+	}
+
+	return wrapped
+		.map((line, index) => `${index === 0 ? listItemPrefix : listItemContinuationPrefix}${line}`)
+		.join('\n');
+};
+
+export const formatDetailedBodyWithColumnGuide = (
+	normalizedBody: ReturnType<typeof normalizeDetailedBody>,
+	detailsStyle: DetailsStyle,
+	detailColumnGuide: number,
+) => {
+	const resolvedGuide = resolveDetailColumnGuide(detailColumnGuide);
+
+	if (detailsStyle === 'list') {
+		return normalizedBody.listItems
+			.slice(0, 6)
+			.map(item => formatListItemWithColumnGuide(item, resolvedGuide))
+			.join('\n');
+	}
+
+	return wrapTextByColumns(normalizedBody.paragraph, resolvedGuide)
+		.join('\n');
+};
+
 const sanitizeSimpleMessage = (message: string) => sanitizeTitle(
 	stripCodeFences(message)
 		.trim()
@@ -539,30 +651,28 @@ const sanitizeSimpleMessage = (message: string) => sanitizeTitle(
 const sanitizeDetailedMessage = (
 	message: string,
 	detailsStyle: DetailsStyle,
+	detailColumnGuide: number,
 ) => {
 	const cleaned = stripCodeFences(message);
 	const { title, body } = splitCommitMessage(cleaned);
 	const normalizedBody = normalizeDetailedBody(body);
+	const wrappedBody = formatDetailedBodyWithColumnGuide(
+		normalizedBody,
+		detailsStyle,
+		detailColumnGuide,
+	);
 
-	if (detailsStyle === 'list') {
-		const bodyAsList = normalizedBody.listItems
-			.slice(0, 6)
-			.map(item => `- ${item}`)
-			.join('\n');
-
-		return formatCommitMessage(title, bodyAsList);
-	}
-
-	return formatCommitMessage(title, normalizedBody.paragraph);
+	return formatCommitMessage(title, wrappedBody);
 };
 
 const sanitizeMessage = (
 	message: string,
 	includeDetails: boolean,
 	detailsStyle: DetailsStyle,
+	detailColumnGuide: number,
 ) => {
 	if (includeDetails) {
-		return sanitizeDetailedMessage(message, detailsStyle);
+		return sanitizeDetailedMessage(message, detailsStyle, detailColumnGuide);
 	}
 
 	return sanitizeSimpleMessage(message);
@@ -1085,6 +1195,7 @@ export const generateCommitMessage = async (
 	const resolvedOptions = options ?? {};
 	const includeDetails = resolvedOptions.includeDetails ?? false;
 	const detailsStyle: DetailsStyle = resolvedOptions.detailsStyle ?? 'paragraph';
+	const detailColumnGuide = resolvedOptions.detailColumnGuide ?? defaultDetailColumnGuide;
 	const requestOptions = parseRequestOptionsJson(resolvedOptions.requestOptionsJson);
 	const diffBudgetChars = resolveDiffBudgetChars(resolvedOptions.contextWindowTokens);
 	const compactedDiff = compactDiffForPrompt(diff, diffBudgetChars);
@@ -1110,6 +1221,7 @@ export const generateCommitMessage = async (
 		const promptOptions: PromptOptions = {
 			includeDetails: resolvedOptions.includeDetails,
 			detailsStyle: resolvedOptions.detailsStyle,
+			detailColumnGuide: resolvedOptions.detailColumnGuide,
 			instructions: mergedInstructions,
 			conventionalFormat: resolvedOptions.conventionalFormat,
 			conventionalTypes: resolvedOptions.conventionalTypes,
@@ -1156,7 +1268,7 @@ export const generateCommitMessage = async (
 					return [];
 				}
 
-				return [sanitizeMessage(content, includeDetails, detailsStyle)];
+				return [sanitizeMessage(content, includeDetails, detailsStyle, detailColumnGuide)];
 			})
 			.filter(Boolean);
 

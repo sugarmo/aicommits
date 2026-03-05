@@ -5,6 +5,7 @@ export type DetailsStyle = 'paragraph' | 'list';
 export type PromptOptions = {
 	includeDetails?: boolean;
 	detailsStyle?: DetailsStyle;
+	detailColumnGuide?: number;
 	instructions?: string;
 	conventionalFormat?: string;
 	conventionalTypes?: string;
@@ -117,6 +118,7 @@ const getCommitTypeInstruction = (
 const getDetailsInstruction = (
 	includeDetails: boolean,
 	detailsStyle: DetailsStyle,
+	detailColumnGuide: number,
 ) => {
 	if (!includeDetails) {
 		return 'Provide only the title, no description or body.';
@@ -133,6 +135,7 @@ const getDetailsInstruction = (
 			'<body>',
 			'The body must be 3-6 concise bullet points.',
 			'Each bullet must start with "- ".',
+			`Wrap bullet lines around column ${detailColumnGuide} when reasonable.`,
 			'Do not use section labels like "Impact:", "Changes:", "Summary:", or markdown headings.',
 			'Each bullet should describe one concrete code-path change with real symbols from the diff.',
 		].join('\n');
@@ -147,6 +150,7 @@ const getDetailsInstruction = (
 		'',
 		'<body>',
 		'The body should be 3-6 concise technical prose sentences in one paragraph, not bullet points.',
+		`Wrap body text around column ${detailColumnGuide} when reasonable.`,
 		'Do not use section labels like "Impact:", "Changes:", "Summary:", or markdown headings.',
 		'Describe concrete code-path changes with real symbols from the diff (classes, methods, APIs, actor/threading/cancellation/error-flow changes).',
 		'Prefer before/after wording for key behavior changes instead of generic claims.',
@@ -322,12 +326,13 @@ export const generatePrompt = (
 ) => {
 	const includeDetails = options.includeDetails ?? false;
 	const detailsStyle = options.detailsStyle ?? 'paragraph';
+	const detailColumnGuide = options.detailColumnGuide ?? 72;
 	const conventionalScope = options.conventionalScope ?? false;
 	const largeChangeSet = isLargeChangeSet(options.changedFiles, options.diffWasCompacted);
 
 	return [
 		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',
-		getDetailsInstruction(includeDetails, detailsStyle),
+		getDetailsInstruction(includeDetails, detailsStyle, detailColumnGuide),
 		getLanguageInstruction(locale),
 		getTitleLengthGuidanceInstruction(maxLength),
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',

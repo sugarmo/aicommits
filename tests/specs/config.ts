@@ -151,8 +151,10 @@ export default testSuite(({ describe }) => {
 
 		await describe('show-reasoning', ({ test }) => {
 			test('defaults to false', async () => {
-				const get = await aicommits(['config', 'get', 'show-reasoning']);
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				const get = await isolatedAicommits(['config', 'get', 'show-reasoning']);
 				expect(get.stdout).toBe('show-reasoning=false');
+				await isolatedFixture.rm();
 			});
 
 			test('must be a boolean', async () => {
@@ -349,14 +351,49 @@ export default testSuite(({ describe }) => {
 			});
 
 			test('accepts legacy max-length alias and normalizes to new key', async () => {
-				await aicommits(['config', 'set', 'max-length=65']);
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				const isolatedConfigPath = path.join(isolatedFixture.path, '.aicommits', 'config.toml');
+				await isolatedAicommits(['config', 'set', 'max-length=65']);
 
-				const configFile = await fs.readFile(configPath, 'utf8');
+				const configFile = await fs.readFile(isolatedConfigPath, 'utf8');
 				expect(configFile).toMatch(/title-length-guide\s*=\s*65/);
 				expect(configFile).not.toMatch(/max-length\s*=/);
 
-				const getLegacy = await aicommits(['config', 'get', 'max-length']);
+				const getLegacy = await isolatedAicommits(['config', 'get', 'max-length']);
 				expect(getLegacy.stdout).toBe('title-length-guide=65');
+				await isolatedFixture.rm();
+			});
+		});
+
+		await describe('detail-column-guide', ({ test }) => {
+			test('must be an integer', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'detail-column-guide=abc'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch('Must be an integer');
+			});
+
+			test('must be at least 20 characters', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'detail-column-guide=10'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be greater than 20 characters/i);
+			});
+
+			test('updates config', async () => {
+				const defaultConfig = await aicommits(['config', 'get', 'detail-column-guide']);
+				expect(defaultConfig.stdout).toBe('detail-column-guide=72');
+
+				const detailColumnGuide = 'detail-column-guide=88';
+				await aicommits(['config', 'set', detailColumnGuide]);
+
+				const configFile = await fs.readFile(configPath, 'utf8');
+				expect(configFile).toMatch(/detail-column-guide\s*=\s*88/);
+
+				const get = await aicommits(['config', 'get', 'detail-column-guide']);
+				expect(get.stdout).toBe(detailColumnGuide);
 			});
 		});
 

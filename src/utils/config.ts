@@ -310,6 +310,19 @@ const configParsers = {
 
 		return parsed;
 	},
+	'detail-column-guide'(detailColumnGuide?: unknown) {
+		if (!detailColumnGuide) {
+			return 72;
+		}
+
+		parseAssert('detail-column-guide', typeof detailColumnGuide === 'string' || typeof detailColumnGuide === 'number', 'Must be an integer');
+
+		const parsed = Number(detailColumnGuide);
+		parseAssert('detail-column-guide', Number.isInteger(parsed), 'Must be an integer');
+		parseAssert('detail-column-guide', parsed >= 20, 'Must be greater than 20 characters');
+
+		return parsed;
+	},
 	details(details?: unknown) {
 		return parseBoolean('details', details, false);
 	},
