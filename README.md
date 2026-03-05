@@ -96,6 +96,12 @@ If you prefer a bullet-list body style:
 aicommits --details --details-style list
 ```
 
+If you prefer markdown-formatted detail body:
+
+```sh
+aicommits --details --details-style markdown
+```
+
 #### Default style
 
 The generator uses a GitHub Copilot-like style by default and prefers commit titles with a concrete file/class/module anchor so commit lists are easier to scan.
@@ -339,10 +345,11 @@ Default: `paragraph`
 
 Controls body formatting when `details=true`.
 
-Allowed values: `paragraph`, `list`
+Allowed values: `paragraph`, `list`, `markdown`
 
 ```sh
 aicommits config set details-style=list
+aicommits config set details-style=markdown
 ```
 
 #### detail-column-guide
@@ -350,6 +357,7 @@ aicommits config set details-style=list
 Default: `72`
 
 Guidance target for where detail/body lines should wrap.
+Applies to `paragraph` and `list` styles. `markdown` style keeps original line breaks.
 
 ```sh
 aicommits config set detail-column-guide=88

@@ -624,9 +624,55 @@ const formatListItemWithColumnGuide = (
 		.join('\n');
 };
 
+export const formatMarkdownBodyWithColumnGuide = (
+	body: string,
+	_detailColumnGuide: number,
+) => {
+	const lines = normalizeLineEndings(body)
+		.split('\n')
+		.map(line => line.replace(/\s+$/g, ''));
+
+	while (lines[0]?.trim() === '') {
+		lines.shift();
+	}
+
+	while (lines[lines.length - 1]?.trim() === '') {
+		lines.pop();
+	}
+
+	if (lines.length === 0) {
+		return '';
+	}
+
+	const sanitizedLines = lines.map((line) => {
+		if (!line.trim()) {
+			return '';
+		}
+
+		const indentation = line.match(/^(\s*)/u)?.[1] || '';
+		const content = line.trimStart();
+		return `${indentation}${stripBodyLabels(content)}`;
+	});
+
+	const compactedLines: string[] = [];
+	let previousBlank = false;
+	for (const line of sanitizedLines) {
+		const isBlank = line.trim() === '';
+		if (isBlank && previousBlank) {
+			continue;
+		}
+
+		compactedLines.push(isBlank ? '' : line);
+		previousBlank = isBlank;
+	}
+
+	// For markdown style, keep author/model line breaks and avoid width reflow.
+	return compactedLines.join('\n');
+};
+
 export const formatDetailedBodyWithColumnGuide = (
 	normalizedBody: ReturnType<typeof normalizeDetailedBody>,
-	detailsStyle: DetailsStyle,
+	detailsStyle: Exclude<DetailsStyle, 'markdown'>,
 	detailColumnGuide: number,
 ) => {
 	const resolvedGuide = resolveDetailColumnGuide(detailColumnGuide);
@@ -655,6 +701,14 @@ const sanitizeDetailedMessage = (
 ) => {
 	const cleaned = stripCodeFences(message);
 	const { title, body } = splitCommitMessage(cleaned);
+
+	if (detailsStyle === 'markdown') {
+		return formatCommitMessage(
+			title,
+			formatMarkdownBodyWithColumnGuide(body, detailColumnGuide),
+		);
+	}
+
 	const normalizedBody = normalizeDetailedBody(body);
 	const wrappedBody = formatDetailedBodyWithColumnGuide(
 		normalizedBody,

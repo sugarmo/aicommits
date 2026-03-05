@@ -1,5 +1,8 @@
 import { expect, testSuite } from 'manten';
-import { formatDetailedBodyWithColumnGuide } from '../../src/utils/openai.js';
+import {
+	formatDetailedBodyWithColumnGuide,
+	formatMarkdownBodyWithColumnGuide,
+} from '../../src/utils/openai.js';
 
 const getCodePointLength = (value: string) => Array.from(value).length;
 
@@ -70,6 +73,19 @@ export default testSuite(({ describe, test }) => {
 
 			expect(formatted).toBe(longToken);
 			expect(getCodePointLength(formatted)).toBeGreaterThan(16);
+		});
+
+		test('keeps markdown line layout unchanged', () => {
+			const markdown = [
+				'### Capture pipeline lifecycle synchronization',
+				'- update coordinator ownership and cancellation boundaries for retry-heavy paths',
+				'> keep retry flow deterministic',
+			].join('\n');
+			const narrow = formatMarkdownBodyWithColumnGuide(markdown, 34);
+			const wide = formatMarkdownBodyWithColumnGuide(markdown, 120);
+
+			expect(narrow).toBe(markdown);
+			expect(wide).toBe(markdown);
 		});
 	});
 });

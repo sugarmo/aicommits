@@ -338,8 +338,8 @@ const configParsers = {
 			throw new KnownError('Invalid config property details-style: Must be a string');
 		}
 		const normalized = detailsStyle.trim().toLowerCase();
-		parseAssert('details-style', ['paragraph', 'list'].includes(normalized), 'Must be one of: paragraph, list');
-		return normalized as 'paragraph' | 'list';
+		parseAssert('details-style', ['paragraph', 'list', 'markdown'].includes(normalized), 'Must be one of: paragraph, list, markdown');
+		return normalized as 'paragraph' | 'list' | 'markdown';
 	},
 	instructions(instructions?: unknown) {
 		if (instructions === undefined || instructions === null) {

@@ -70,6 +70,19 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('Wrap bullet lines around column 66 when reasonable.');
 		});
 
+		test('supports markdown detail style', () => {
+			const prompt = generatePrompt('en', 72, 'conventional', {
+				includeDetails: true,
+				detailsStyle: 'markdown',
+				detailColumnGuide: 64,
+			});
+
+			expect(prompt).toMatch('The body must be concise markdown (2-6 lines).');
+			expect(prompt).toMatch('Allowed markdown forms: bullet lists, numbered lists, markdown headings, blockquotes, and inline code.');
+			expect(prompt).toMatch('Do not use fenced code blocks.');
+			expect(prompt).toMatch('Do not force markdown lines to a fixed column width.');
+		});
+
 		test('injects changed files and anchor requirement', () => {
 			const prompt = generatePrompt('en', 72, 'conventional', {
 				changedFiles: [

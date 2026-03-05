@@ -92,15 +92,20 @@ export default testSuite(({ describe }) => {
 
 		await describe('profile', ({ test }) => {
 			test('supports setting profile name', async () => {
-				await aicommits(['config', 'set', 'profile=openai']);
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				await isolatedAicommits(['config', 'set', 'profile=openai']);
 
-				const get = await aicommits(['config', 'get', 'profile']);
+				const get = await isolatedAicommits(['config', 'get', 'profile']);
 				expect(get.stdout).toBe('profile=openai');
+				await isolatedFixture.rm();
 			});
 
 			test('profile values override top-level values', async () => {
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				const isolatedConfigPath = path.join(isolatedFixture.path, '.aicommits', 'config.toml');
+				await fs.mkdir(path.dirname(isolatedConfigPath), { recursive: true });
 				await fs.writeFile(
-					configPath,
+					isolatedConfigPath,
 					[
 						'api-key = "top-level-key"',
 						'model = "top-level-model"',
@@ -115,11 +120,12 @@ export default testSuite(({ describe }) => {
 					'utf8',
 				);
 
-				const modelGet = await aicommits(['config', 'get', 'model']);
+				const modelGet = await isolatedAicommits(['config', 'get', 'model']);
 				expect(modelGet.stdout).toBe('model=profile-model');
 
-				const baseUrlGet = await aicommits(['config', 'get', 'base-url']);
+				const baseUrlGet = await isolatedAicommits(['config', 'get', 'base-url']);
 				expect(baseUrlGet.stdout).toBe('base-url=https://api.profile.example/v1');
+				await isolatedFixture.rm();
 			});
 		});
 
@@ -174,19 +180,30 @@ export default testSuite(({ describe }) => {
 		});
 
 		await describe('details-style', ({ test }) => {
-			test('must be paragraph or list', async () => {
+			test('must be paragraph, list, or markdown', async () => {
 				const { stderr } = await aicommits(['config', 'set', 'details-style=table'], {
 					reject: false,
 				});
 
-				expect(stderr).toMatch(/must be one of: paragraph, list/i);
+				expect(stderr).toMatch(/must be one of: paragraph, list, markdown/i);
 			});
 
 			test('stores list style', async () => {
-				await aicommits(['config', 'set', 'details-style=list']);
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				await isolatedAicommits(['config', 'set', 'details-style=list']);
 
-				const get = await aicommits(['config', 'get', 'details-style']);
+				const get = await isolatedAicommits(['config', 'get', 'details-style']);
 				expect(get.stdout).toBe('details-style=list');
+				await isolatedFixture.rm();
+			});
+
+			test('stores markdown style', async () => {
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				await isolatedAicommits(['config', 'set', 'details-style=markdown']);
+
+				const get = await isolatedAicommits(['config', 'get', 'details-style']);
+				expect(get.stdout).toBe('details-style=markdown');
+				await isolatedFixture.rm();
 			});
 		});
 

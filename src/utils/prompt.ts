@@ -1,6 +1,6 @@
 import type { CommitType } from './config.js';
 
-export type DetailsStyle = 'paragraph' | 'list';
+export type DetailsStyle = 'paragraph' | 'list' | 'markdown';
 
 export type PromptOptions = {
 	includeDetails?: boolean;
@@ -141,6 +141,24 @@ const getDetailsInstruction = (
 		].join('\n');
 	}
 
+	if (detailsStyle === 'markdown') {
+		return [
+			'When details are enabled, first decide whether the title alone already clearly explains what changed.',
+			'If the title is already sufficient, output only the title.',
+			'Do not add any explanation for omitting the body.',
+			'If the title is not sufficient, output format must be exactly:',
+			'<title>',
+			'',
+			'<body>',
+			'The body must be concise markdown (2-6 lines).',
+			'Allowed markdown forms: bullet lists, numbered lists, markdown headings, blockquotes, and inline code.',
+			'Do not use fenced code blocks.',
+			'Do not force markdown lines to a fixed column width.',
+			'Keep markdown structure valid and compact.',
+			'Describe concrete code-path changes with real symbols from the diff.',
+		].join('\n');
+	}
+
 	return [
 		'When details are enabled, first decide whether the title alone already clearly explains what changed.',
 		'If the title is already sufficient, output only the title.',
@@ -230,9 +248,15 @@ const getThemeGroupingInstruction = (
 		return '';
 	}
 
-	return detailsStyle === 'list'
-		? 'When body is needed, prefer 2-4 theme-level bullets (for example architecture, API surface, tooling/config, tests) instead of a file-by-file change log.'
-		: 'When body is needed, prefer 2-4 theme-level sentences (for example architecture, API surface, tooling/config, tests) instead of a file-by-file walkthrough.';
+	if (detailsStyle === 'list') {
+		return 'When body is needed, prefer 2-4 theme-level bullets (for example architecture, API surface, tooling/config, tests) instead of a file-by-file change log.';
+	}
+
+	if (detailsStyle === 'markdown') {
+		return 'When body is needed, prefer 2-4 theme-level markdown bullets/sections (for example architecture, API surface, tooling/config, tests) instead of a file-by-file change log.';
+	}
+
+	return 'When body is needed, prefer 2-4 theme-level sentences (for example architecture, API surface, tooling/config, tests) instead of a file-by-file walkthrough.';
 };
 
 const getLargeChangeSetInstruction = (
@@ -254,7 +278,7 @@ const getLargeChangeSetInstruction = (
 	];
 
 	if (includeDetails) {
-		if (detailsStyle === 'list') {
+		if (detailsStyle === 'list' || detailsStyle === 'markdown') {
 			rules.push(
 				'- If body is included, use 2-4 high-level bullets grouped by themes (for example API surface, architecture flow, tooling/config, tests).',
 				'- Each bullet should summarize a theme, not a per-file change log.',

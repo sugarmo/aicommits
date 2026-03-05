@@ -52,7 +52,7 @@ cli(
 			},
 			detailsStyle: {
 				type: String,
-				description: 'Body style when --details is enabled: paragraph or list',
+				description: 'Body style when --details is enabled: paragraph, list, or markdown',
 			},
 			instructions: {
 				type: String,
