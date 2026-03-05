@@ -77,7 +77,7 @@ export default () => (async () => {
 		config.locale,
 		staged.diff,
 		config.generate,
-		config['max-length'],
+		config['title-length-guide'],
 		config.type,
 		config.timeout,
 		config.proxy,

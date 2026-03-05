@@ -175,6 +175,12 @@ const getLanguageInstruction = (locale: string) => [
 	'You must write the commit message strictly in this language.',
 ].join('\n');
 
+const getTitleLengthGuidanceInstruction = (maxLength: number) => [
+	`Commit title length guide: target ${maxLength} characters or fewer.`,
+	'This is a writing guide, not a strict hard cutoff. A small overrun is acceptable only when needed for clarity.',
+	'Run a silent self-check before final output: if the title is clearly over the guide, rewrite it shorter by removing filler words while keeping the concrete anchor and core action.',
+].join('\n');
+
 const getChangedFilesInstruction = (changedFiles?: string[]) => {
 	if (!changedFiles || changedFiles.length === 0) {
 		return '';
@@ -323,9 +329,9 @@ export const generatePrompt = (
 		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',
 		getDetailsInstruction(includeDetails, detailsStyle),
 		getLanguageInstruction(locale),
-		`Commit title must be a maximum of ${maxLength} characters.`,
+		getTitleLengthGuidanceInstruction(maxLength),
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',
-		`IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. The commit title must not exceed ${maxLength} characters. Respond with ONLY the commit message text.`,
+		'IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. Respond with ONLY the commit message text.',
 		getSpecificityInstruction(largeChangeSet),
 		getThemeGroupingInstruction(includeDetails, detailsStyle),
 		getLargeChangeSetInstruction(includeDetails, detailsStyle, largeChangeSet),

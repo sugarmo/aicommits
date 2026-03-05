@@ -316,9 +316,9 @@ export default testSuite(({ describe }) => {
 			});
 		});
 
-		await describe('max-length', ({ test }) => {
+		await describe('title-length-guide', ({ test }) => {
 			test('must be an integer', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'max-length=abc'], {
+				const { stderr } = await aicommits(['config', 'set', 'title-length-guide=abc'], {
 					reject: false,
 				});
 
@@ -326,7 +326,7 @@ export default testSuite(({ describe }) => {
 			});
 
 			test('must be at least 20 characters', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'max-length=10'], {
+				const { stderr } = await aicommits(['config', 'set', 'title-length-guide=10'], {
 					reject: false,
 				});
 
@@ -334,17 +334,29 @@ export default testSuite(({ describe }) => {
 			});
 
 			test('updates config', async () => {
-				const defaultConfig = await aicommits(['config', 'get', 'max-length']);
-				expect(defaultConfig.stdout).toBe('max-length=50');
+				const defaultConfig = await aicommits(['config', 'get', 'title-length-guide']);
+				expect(defaultConfig.stdout).toBe('title-length-guide=50');
 
-				const maxLength = 'max-length=60';
-				await aicommits(['config', 'set', maxLength]);
+				const titleLengthGuide = 'title-length-guide=60';
+				await aicommits(['config', 'set', titleLengthGuide]);
 
 				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(/max-length\s*=\s*60/);
+				expect(configFile).toMatch(/title-length-guide\s*=\s*60/);
+				expect(configFile).not.toMatch(/max-length\s*=/);
 
-				const get = await aicommits(['config', 'get', 'max-length']);
-				expect(get.stdout).toBe(maxLength);
+				const get = await aicommits(['config', 'get', 'title-length-guide']);
+				expect(get.stdout).toBe(titleLengthGuide);
+			});
+
+			test('accepts legacy max-length alias and normalizes to new key', async () => {
+				await aicommits(['config', 'set', 'max-length=65']);
+
+				const configFile = await fs.readFile(configPath, 'utf8');
+				expect(configFile).toMatch(/title-length-guide\s*=\s*65/);
+				expect(configFile).not.toMatch(/max-length\s*=/);
+
+				const getLegacy = await aicommits(['config', 'get', 'max-length']);
+				expect(getLegacy.stdout).toBe('title-length-guide=65');
 			});
 		});
 

@@ -8,10 +8,30 @@ import {
 	warnSkippedLiveTests,
 } from '../../utils.js';
 
+type AicommitsRunner = Awaited<ReturnType<typeof createFixture>>['aicommits'];
+
 const conventionalCommitPattern = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?:\s+\S/;
-const expectReasonableCommitLength = (commitMessage: string) => {
+const expectGuidedCommitLength = (
+	commitMessage: string,
+	guide: number,
+	buffer = 24,
+) => {
 	expect(commitMessage.length).toBeGreaterThan(0);
-	expect(commitMessage.length).toBeLessThanOrEqual(72);
+	expect(commitMessage.length).toBeLessThanOrEqual(guide + buffer);
+};
+const readConfiguredMaxLength = async (aicommits: AicommitsRunner) => {
+	const { stdout } = await aicommits(['config', 'get', 'title-length-guide']);
+	const match = stdout.trim().match(/^title-length-guide=(\d+)$/);
+	expect(Boolean(match?.[1])).toBe(true);
+	return Number(match?.[1]);
+};
+const expectCommitLengthUsingConfiguredGuide = async (
+	commitMessage: string,
+	aicommits: AicommitsRunner,
+	buffer = 24,
+) => {
+	const configuredGuide = await readConfiguredMaxLength(aicommits);
+	expectGuidedCommitLength(commitMessage, configuredGuide, buffer);
 };
 
 const isLocalProxyReachable = (port = 8888) => new Promise<boolean>((resolve) => {
@@ -84,15 +104,16 @@ export default testSuite(({ describe }) => {
 				commitMessage,
 				length: commitMessage.length,
 			});
-			expectReasonableCommitLength(commitMessage);
+			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 			await fixture.rm();
 		});
 
-		test('Accepts max-length config while generating a commit', async () => {
+		test('Treats configured title-length-guide as guidance', async () => {
+			const guide = 64;
 			const { fixture, aicommits } = await createFixture({
 				...files,
-				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\nmax-length = 20`,
+				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntitle-length-guide = ${guide}`,
 			});
 
 			const git = await createGit(fixture.path);
@@ -115,7 +136,7 @@ export default testSuite(({ describe }) => {
 				commitMessage,
 				length: commitMessage.length,
 			});
-			expectReasonableCommitLength(commitMessage);
+			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 			await fixture.rm();
 		});
@@ -152,7 +173,7 @@ export default testSuite(({ describe }) => {
 				commitMessage,
 				length: commitMessage.length,
 			});
-			expectReasonableCommitLength(commitMessage);
+			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 			await fixture.rm();
 		});
@@ -196,7 +217,7 @@ export default testSuite(({ describe }) => {
 				commitMessage,
 				length: commitMessage.length,
 			});
-			expectReasonableCommitLength(commitMessage);
+			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 			await fixture.rm();
 		});
@@ -230,7 +251,7 @@ export default testSuite(({ describe }) => {
 				commitMessage,
 				length: commitMessage.length,
 			});
-			expectReasonableCommitLength(commitMessage);
+			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 			await fixture.rm();
 		});
@@ -429,7 +450,7 @@ export default testSuite(({ describe }) => {
 					commitMessage,
 					length: commitMessage.length,
 				});
-				expectReasonableCommitLength(commitMessage);
+				await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 				await fixture.rm();
 			});
@@ -469,7 +490,7 @@ export default testSuite(({ describe }) => {
 					commitMessage,
 					length: commitMessage.length,
 				});
-				expectReasonableCommitLength(commitMessage);
+				await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 				await fixture.rm();
 			});

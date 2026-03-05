@@ -297,16 +297,16 @@ const configParsers = {
 
 		return parsed;
 	},
-	'max-length'(maxLength?: unknown) {
-		if (!maxLength) {
+	'title-length-guide'(titleLengthGuide?: unknown) {
+		if (!titleLengthGuide) {
 			return 50;
 		}
 
-		parseAssert('max-length', typeof maxLength === 'string' || typeof maxLength === 'number', 'Must be an integer');
+		parseAssert('title-length-guide', typeof titleLengthGuide === 'string' || typeof titleLengthGuide === 'number', 'Must be an integer');
 
-		const parsed = Number(maxLength);
-		parseAssert('max-length', Number.isInteger(parsed), 'Must be an integer');
-		parseAssert('max-length', parsed >= 20, 'Must be greater than 20 characters');
+		const parsed = Number(titleLengthGuide);
+		parseAssert('title-length-guide', Number.isInteger(parsed), 'Must be an integer');
+		parseAssert('title-length-guide', parsed >= 20, 'Must be greater than 20 characters');
 
 		return parsed;
 	},
@@ -384,10 +384,24 @@ export type ValidConfig = {
 	[Key in ConfigKeys]: ReturnType<typeof configParsers[Key]>;
 };
 
+const configKeyAliases = {
+	'max-length': 'title-length-guide',
+} as const;
+
+export const resolveConfigKey = (key: string): ConfigKeys | undefined => {
+	const normalized = key.trim();
+	if (hasOwn(configParsers, normalized)) {
+		return normalized as ConfigKeys;
+	}
+
+	return configKeyAliases[normalized as keyof typeof configKeyAliases];
+};
+
 const legacyConfigAliases: Partial<Record<ConfigKeys, string[]>> = {
 	'api-key': ['openai-key', 'OPENAI_KEY', 'OPENAI_API_KEY'],
 	'base-url': ['openai-base-url', 'OPENAI_BASE_URL'],
 	model: ['OPENAI_MODEL'],
+	'title-length-guide': ['max-length'],
 };
 
 const configDirectoryPath = path.join(os.homedir(), '.aicommits');
@@ -740,15 +754,15 @@ export const setConfigs = async (
 	normalizeLegacyConfigKeys(config);
 
 	for (const [key, value] of keyValues) {
-		if (!hasOwn(configParsers, key)) {
+		const resolvedKey = resolveConfigKey(key);
+		if (!resolvedKey) {
 			throw new KnownError(`Invalid config property: ${key}`);
 		}
 
-		const normalizedKey = key as ConfigKeys;
-		const parsed = configParsers[normalizedKey](value);
-		config[normalizedKey] = parsed as RawConfigValue;
+		const parsed = configParsers[resolvedKey](value);
+		config[resolvedKey] = parsed as RawConfigValue;
 
-		const aliases = legacyConfigAliases[normalizedKey] || [];
+		const aliases = legacyConfigAliases[resolvedKey] || [];
 		for (const alias of aliases) {
 			delete config[alias];
 		}

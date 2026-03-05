@@ -302,14 +302,16 @@ Use `0` to switch back to auto mode:
 aicommits config set context-window=0
 ```
 
-#### max-length
-The maximum character length of the generated commit message.
+#### title-length-guide
+Guidance target for commit title length.
 
 Default: `50`
 
 ```sh
-aicommits config set max-length=100
+aicommits config set title-length-guide=100
 ```
+
+`max-length` is kept as a compatibility alias.
 
 #### type
 

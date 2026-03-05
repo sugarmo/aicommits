@@ -7,7 +7,8 @@ export default testSuite(({ describe, test }) => {
 			const prompt = generatePrompt('en', 50, '');
 
 			expect(prompt).toMatch('Provide only the title, no description or body.');
-			expect(prompt).toMatch('Commit title must be a maximum of 50 characters.');
+			expect(prompt).toMatch('Commit title length guide: target 50 characters or fewer.');
+			expect(prompt).toMatch('writing guide, not a strict hard cutoff');
 		});
 
 		test('supports details and custom conventional instructions', () => {

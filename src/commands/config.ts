@@ -1,6 +1,11 @@
 import { command } from 'cleye';
 import { red } from 'kolorist';
-import { hasOwn, getConfig, setConfigs } from '../utils/config.js';
+import {
+	hasOwn,
+	getConfig,
+	setConfigs,
+	resolveConfigKey,
+} from '../utils/config.js';
 import { KnownError, handleCliError } from '../utils/error.js';
 
 const parseKeyValue = (keyValue: string): [string, string] => {
@@ -27,8 +32,9 @@ export default command({
 		if (mode === 'get') {
 			const config = await getConfig({}, true);
 			for (const key of keyValues) {
-				if (hasOwn(config, key)) {
-					console.log(`${key}=${config[key as keyof typeof config]}`);
+				const resolvedKey = resolveConfigKey(key);
+				if (resolvedKey && hasOwn(config, resolvedKey)) {
+					console.log(`${resolvedKey}=${config[resolvedKey]}`);
 				}
 			}
 			return;
