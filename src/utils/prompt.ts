@@ -152,6 +152,8 @@ const getDetailsInstruction = (
 			'<body>',
 			'The body must be concise markdown (2-6 lines).',
 			'Allowed markdown forms: bullet lists, numbered lists, markdown headings, blockquotes, and inline code.',
+			'When body is present, at least one non-empty line must start with a markdown marker such as "- ", "1. ", "> ", or "### ".',
+			'Do not output plain prose paragraphs without visible markdown markers.',
 			'Do not use fenced code blocks.',
 			'Do not force markdown lines to a fixed column width.',
 			'Keep markdown structure valid and compact.',

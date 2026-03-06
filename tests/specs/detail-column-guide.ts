@@ -87,5 +87,18 @@ export default testSuite(({ describe, test }) => {
 			expect(narrow).toBe(markdown);
 			expect(wide).toBe(markdown);
 		});
+
+		test('upgrades plain markdown body fallback into bullet list', () => {
+			const plainBody = [
+				'Update coordinator ownership for retry-heavy capture paths.',
+				'Preserve cancellation propagation across stitch boundaries.',
+			].join('\n');
+			const formatted = formatMarkdownBodyWithColumnGuide(plainBody, 72);
+
+			expect(formatted).toBe([
+				'- Update coordinator ownership for retry-heavy capture paths.',
+				'- Preserve cancellation propagation across stitch boundaries.',
+			].join('\n'));
+		});
 	});
 });

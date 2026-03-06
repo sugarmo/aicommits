@@ -489,6 +489,24 @@ const normalizeDetailedBody = (body: string) => {
 	};
 };
 
+const hasExplicitMarkdownLineSyntax = (body: string) => body
+	.split('\n')
+	.some((line) => {
+		const trimmed = line.trim();
+		if (!trimmed) {
+			return false;
+		}
+
+		return (
+			trimmed.startsWith('- ')
+			|| trimmed.startsWith('* ')
+			|| trimmed.startsWith('+ ')
+			|| trimmed.startsWith('> ')
+			|| /^#{1,6}\s/u.test(trimmed)
+			|| /^\d+[.)]\s+/u.test(trimmed)
+		);
+	});
+
 const splitCommitMessage = (message: string) => {
 	const normalized = normalizeLineEndings(message).trim();
 	if (!normalized) {
@@ -666,8 +684,22 @@ export const formatMarkdownBodyWithColumnGuide = (
 		previousBlank = isBlank;
 	}
 
+	const compactedBody = compactedLines.join('\n');
+	if (hasExplicitMarkdownLineSyntax(compactedBody)) {
+		// For markdown style, keep author/model line breaks and avoid width reflow.
+		return compactedBody;
+	}
+
+	const normalizedBody = normalizeDetailedBody(compactedBody);
+	if (normalizedBody.listItems.length > 0) {
+		return normalizedBody.listItems
+			.slice(0, 6)
+			.map(item => `${listItemPrefix}${item}`)
+			.join('\n');
+	}
+
 	// For markdown style, keep author/model line breaks and avoid width reflow.
-	return compactedLines.join('\n');
+	return compactedBody;
 };
 
 export const formatDetailedBodyWithColumnGuide = (
