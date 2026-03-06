@@ -218,7 +218,7 @@ async function installCli(): Promise<boolean> {
 	return new Promise((resolve) => {
 		const terminal = vscode.window.createTerminal({ name: 'AI Commits Setup' });
 		terminal.show();
-		terminal.sendText('npm install -g aicommits@develop && aicommits setup');
+		terminal.sendText('npm install -g aicommits && aicommits setup');
 
 		vscode.window.showInformationMessage(
 			'Installing aicommits... Complete the setup in the terminal, then try again.',
