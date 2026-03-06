@@ -18,7 +18,10 @@ export function activate(context: vscode.ExtensionContext) {
 		'aicommits.generate',
 		() => {
 			const config = vscode.workspace.getConfiguration('aicommits');
-			const defaultType = config.get<'plain' | 'conventional' | 'gitmoji'>('defaultType', 'plain');
+			const defaultType = config.get<'plain' | 'conventional' | 'gitmoji'>(
+				'defaultType',
+				'plain',
+			);
 			return generateCommitMessage(defaultType);
 		},
 	);
@@ -90,7 +93,9 @@ async function fetchLatestVersion(distTag: string): Promise<string | null> {
 	const url = `https://registry.npmjs.org/${PACKAGE_NAME}/${distTag}`;
 	outputChannel.appendLine(`[NPM] Fetching: ${url}`);
 	try {
-		const response = await fetch(url, { headers: { Accept: 'application/json' } });
+		const response = await fetch(url, {
+			headers: { Accept: 'application/json' },
+		});
 		outputChannel.appendLine(`[NPM] Response status: ${response.status}`);
 		if (!response.ok) return null;
 		const data = (await response.json()) as { version?: string };
@@ -103,8 +108,17 @@ async function fetchLatestVersion(distTag: string): Promise<string | null> {
 }
 
 function parseVersion(version: string) {
-	const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z]+)(?:\.(\d+))?)/);
-	if (!match) return { major: 0, minor: 0, patch: 0, prerelease: null as string | null, prereleaseNum: 0 };
+	const match = version.match(
+		/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z]+)(?:\.(\d+))?)/,
+	);
+	if (!match)
+		return {
+			major: 0,
+			minor: 0,
+			patch: 0,
+			prerelease: null as string | null,
+			prereleaseNum: 0,
+		};
 	return {
 		major: parseInt(match[1], 10),
 		minor: parseInt(match[2], 10),
@@ -123,7 +137,8 @@ function compareVersions(v1: string, v2: string): number {
 	if (!p1.prerelease && p2.prerelease) return 1;
 	if (p1.prerelease && !p2.prerelease) return -1;
 	if (!p1.prerelease && !p2.prerelease) return 0;
-	if (p1.prereleaseNum !== p2.prereleaseNum) return p1.prereleaseNum > p2.prereleaseNum ? 1 : -1;
+	if (p1.prereleaseNum !== p2.prereleaseNum)
+		return p1.prereleaseNum > p2.prereleaseNum ? 1 : -1;
 	return 0;
 }
 
@@ -131,25 +146,33 @@ async function checkForCliUpdate(): Promise<void> {
 	outputChannel.appendLine('[Update Check] Starting...');
 
 	const currentVersion = await getCliVersion();
-	outputChannel.appendLine(`[Update Check] Current version: ${currentVersion || 'not found'}`);
+	outputChannel.appendLine(
+		`[Update Check] Current version: ${currentVersion || 'not found'}`,
+	);
 	if (!currentVersion) return;
 
 	const distTag = currentVersion.includes('-') ? 'develop' : 'latest';
 	outputChannel.appendLine(`[Update Check] Using dist-tag: ${distTag}`);
 
 	const latestVersion = await fetchLatestVersion(distTag);
-	outputChannel.appendLine(`[Update Check] Latest version: ${latestVersion || 'not found'}`);
+	outputChannel.appendLine(
+		`[Update Check] Latest version: ${latestVersion || 'not found'}`,
+	);
 	if (!latestVersion) return;
 
 	const comparison = compareVersions(currentVersion, latestVersion);
-	outputChannel.appendLine(`[Update Check] Version comparison result: ${comparison}`);
+	outputChannel.appendLine(
+		`[Update Check] Version comparison result: ${comparison}`,
+	);
 
 	if (comparison >= 0) {
 		outputChannel.appendLine('[Update Check] No update needed');
 		return;
 	}
 
-	outputChannel.appendLine(`[Update Check] Update available! Showing notification...`);
+	outputChannel.appendLine(
+		`[Update Check] Update available! Showing notification...`,
+	);
 
 	const action = await vscode.window.showInformationMessage(
 		`A new version of aicommits CLI is available (v${latestVersion}). Update now?`,
@@ -157,10 +180,14 @@ async function checkForCliUpdate(): Promise<void> {
 		'Later',
 	);
 
-	outputChannel.appendLine(`[Update Check] User action: ${action || 'dismissed'}`);
+	outputChannel.appendLine(
+		`[Update Check] User action: ${action || 'dismissed'}`,
+	);
 
 	if (action === 'Update') {
-		const terminal = vscode.window.createTerminal({ name: 'AI Commits Update' });
+		const terminal = vscode.window.createTerminal({
+			name: 'AI Commits Update',
+		});
 		terminal.show();
 		terminal.sendText(`npm install -g ${PACKAGE_NAME}@${distTag}`);
 		vscode.window.showInformationMessage('Updating aicommits CLI...');
@@ -171,9 +198,13 @@ async function isCliInstalled(): Promise<boolean> {
 	return new Promise((resolve) => {
 		const proc = spawn('which', ['aicommits'], { shell: true });
 		let output = '';
-		proc.stdout.on('data', (data) => { output += data.toString(); });
+		proc.stdout.on('data', (data) => {
+			output += data.toString();
+		});
 		proc.on('close', (code) => {
-			outputChannel.appendLine(`[CLI Check] which aicommits exit code: ${code}, output: ${output.trim()}`);
+			outputChannel.appendLine(
+				`[CLI Check] which aicommits exit code: ${code}, output: ${output.trim()}`,
+			);
 			resolve(code === 0);
 		});
 		proc.on('error', (err) => {
@@ -259,14 +290,12 @@ async function generateCommitMessage(
 		},
 		async () => {
 			try {
-				const args = ['--clipboard', '--yes'];
+				const args = [];
 				if (type !== 'plain') {
 					args.push('--type', type);
 				}
 
-				await runCli(cliPath, args, cwd, TIMEOUT_MS);
-
-				const message = await vscode.env.clipboard.readText();
+				const message = await runCli(cliPath, args, cwd, TIMEOUT_MS);
 
 				if (!message) {
 					repo.inputBox.value = originalMessage;
@@ -337,7 +366,7 @@ function runCli(
 	args: string[],
 	cwd: string,
 	timeout: number,
-): Promise<void> {
+): Promise<string> {
 	return new Promise((resolve, reject) => {
 		outputChannel.appendLine(`Running: ${cliPath} ${args.join(' ')}`);
 
@@ -346,7 +375,12 @@ function runCli(
 			shell: true,
 		});
 
+		let stdout = '';
 		let stderr = '';
+
+		proc.stdout.on('data', (data) => {
+			stdout += data.toString();
+		});
 
 		proc.stderr.on('data', (data) => {
 			stderr += data.toString();
@@ -366,7 +400,7 @@ function runCli(
 				return;
 			}
 
-			resolve();
+			resolve(stdout.trim());
 		});
 
 		proc.on('error', (err) => {
