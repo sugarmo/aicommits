@@ -25,6 +25,8 @@ import { KnownError, handleCommandError } from '../utils/error.js';
 
 import { getCommitMessage } from '../utils/commit-helpers.js';
 
+const isHeadless = () => !process.stdout.isTTY;
+
 export default async (
 	generate: number | undefined,
 	excludeFiles: string[],
@@ -37,35 +39,39 @@ export default async (
 	rawArgv: string[]
 ) =>
 	(async () => {
-		intro(bgCyan(black(' aicommits ')));
+		const headless = isHeadless();
+		
+		if (!headless) {
+			intro(bgCyan(black(' aicommits ')));
+		}
 
 		await assertGitRepo();
 
-		const detectingFiles = spinner();
-
 		if (stageAll) {
-			// This should be equivalent behavior to `git commit --all`
 			await execa('git', ['add', '--update']);
 		}
 
-		detectingFiles.start('Detecting staged files');
 		const staged = await getStagedDiff(excludeFiles);
 
 		if (!staged) {
-			detectingFiles.stop('Detecting staged files');
 			throw new KnownError(
 				'No staged changes found. Stage your changes manually, or automatically stage all changes with the `--all` flag.'
 			);
 		}
 
-		if (staged.files.length <= 10) {
-			detectingFiles.stop(
-				`📁 ${getDetectedMessage(staged.files)}:\n${staged.files
-					.map((file) => `     ${file}`)
-					.join('\n')}`
-			);
-		} else {
-			detectingFiles.stop(`📁 ${getDetectedMessage(staged.files)}`);
+		if (!headless) {
+			const detectingFiles = spinner();
+			if (staged.files.length <= 10) {
+				detectingFiles.start('Detecting staged files');
+				detectingFiles.stop(
+					`📁 ${getDetectedMessage(staged.files)}:\n${staged.files
+						.map((file) => `     ${file}`)
+						.join('\n')}`
+				);
+			} else {
+				detectingFiles.start('Detecting staged files');
+				detectingFiles.stop(`📁 ${getDetectedMessage(staged.files)}`);
+			}
 		}
 
 		const { env } = process;
@@ -76,8 +82,7 @@ export default async (
 
 		const providerInstance = getProvider(config);
 		if (!providerInstance) {
-			const isInteractive = process.stdout.isTTY && !process.env.CI;
-			if (isInteractive) {
+			if (!headless) {
 				console.log("Welcome to aicommits! Let's set up your AI provider.");
 				console.log('Run `aicommits setup` to configure your provider.');
 				outro('Setup required. Please run: aicommits setup');
@@ -114,12 +119,14 @@ export default async (
 			isChunking = true;
 		}
 
-		const s = spinner();
-		s.start(
-			`🔍 Analyzing changes in ${staged.files.length} file${
-				staged.files.length === 1 ? '' : 's'
-			}`
-		);
+		const s = headless ? null : spinner();
+		if (s) {
+			s.start(
+				`🔍 Analyzing changes in ${staged.files.length} file${
+					staged.files.length === 1 ? '' : 's'
+				}`
+			);
+		}
 		const startTime = Date.now();
 		let messages: string[];
 		let usage: any;
@@ -239,25 +246,34 @@ export default async (
 				usage = result.usage;
 			}
 		} finally {
-			const duration = Date.now() - startTime;
-			let tokensStr = '';
-			if (usage?.total_tokens) {
-				const tokens = usage.total_tokens;
-				const formattedTokens =
-					tokens >= 1000 ? `${(tokens / 1000).toFixed(0)}k` : tokens.toString();
-				const speed = Math.round(tokens / (duration / 1000));
-				tokensStr = `, ${formattedTokens} tokens (${speed} tokens/s)`;
+			if (s) {
+				const duration = Date.now() - startTime;
+				let tokensStr = '';
+				if (usage?.total_tokens) {
+					const tokens = usage.total_tokens;
+					const formattedTokens =
+						tokens >= 1000 ? `${(tokens / 1000).toFixed(0)}k` : tokens.toString();
+					const speed = Math.round(tokens / (duration / 1000));
+					tokensStr = `, ${formattedTokens} tokens (${speed} tokens/s)`;
+				}
+				s.stop(
+					`✅ Changes analyzed in ${(duration / 1000).toFixed(1)}s${tokensStr}`
+				);
 			}
-			s.stop(
-				`✅ Changes analyzed in ${(duration / 1000).toFixed(1)}s${tokensStr}`
-			);
 		}
 
 		if (messages.length === 0) {
 			throw new KnownError('No commit messages were generated. Try again.');
 		}
 
-		// Get the commit message
+		// Headless mode: output to stdout and exit
+		if (headless) {
+			const message = messages[0];
+			console.log(message);
+			return;
+		}
+
+		// Interactive mode: handle commit message selection and confirmation
 		const message = await getCommitMessage(messages, skipConfirm);
 		if (!message) {
 			outro('Commit cancelled');
