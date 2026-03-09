@@ -24,8 +24,7 @@ import {
 import { KnownError, handleCommandError } from '../utils/error.js';
 
 import { getCommitMessage } from '../utils/commit-helpers.js';
-
-const isHeadless = () => !process.stdout.isTTY;
+import { isHeadless } from '../utils/headless.js';
 
 export default async (
 	generate: number | undefined,

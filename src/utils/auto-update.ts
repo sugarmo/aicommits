@@ -6,6 +6,7 @@ const execAsync = promisify(exec);
 export interface AutoUpdateOptions {
 	pkg: { name: string; version: string };
 	distTag?: string;
+	headless?: boolean;
 }
 
 // Parse version string into comparable parts
@@ -128,7 +129,11 @@ async function runBackgroundUpdate(
 export async function checkAndAutoUpdate(
 	options: AutoUpdateOptions
 ): Promise<void> {
-	const { pkg, distTag = 'latest' } = options;
+	const { pkg, distTag = 'latest', headless = false } = options;
+
+	if (headless) {
+		return;
+	}
 
 	// Skip for development/semantic-release versions
 	if (

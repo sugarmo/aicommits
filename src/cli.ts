@@ -12,16 +12,18 @@ import modelCommand from './commands/model.js';
 import hookCommand, { isCalledFromGitHook } from './commands/hook.js';
 import prCommand from './commands/pr.js';
 import { checkAndAutoUpdate } from './utils/auto-update.js';
+import { isHeadless } from './utils/headless.js';
 
 // Auto-update check - runs in production to update under the hood
 // Skip during git hooks to avoid breaking commit flow
-if (!isCalledFromGitHook && version !== '0.0.0-semantic-release') {
+if (!isCalledFromGitHook && !isHeadless() && version !== '0.0.0-semantic-release') {
 	const distTag = version.includes('-') ? 'develop' : 'latest';
 
 	// Check for updates and auto-update if available
 	checkAndAutoUpdate({
 		pkg,
 		distTag,
+		headless: false,
 	});
 }
 
