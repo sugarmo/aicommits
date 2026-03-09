@@ -9,6 +9,7 @@ import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { KnownError, handleCommandError } from '../utils/error.js';
+import { isInteractive } from '../utils/headless.js';
 
 type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'azure';
 
@@ -80,6 +81,12 @@ export default command(
 	},
 	() => {
 		(async () => {
+			if (!isInteractive()) {
+				throw new KnownError(
+					'Interactive terminal required for PR creation.'
+				);
+			}
+
 			intro(bgCyan(black(' aicommits pr ')));
 
 			await assertGitRepo();

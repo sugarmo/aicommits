@@ -1,4 +1,5 @@
 import { KnownError } from './error.js';
+import { isInteractive } from './headless.js';
 
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -21,9 +22,6 @@ export const getCommitMessage = async (
 	const { select, confirm, isCancel } = await import('@clack/prompts');
 	const { dim } = await import('kolorist');
 
-	// Check if interactive prompts are available
-	const isInteractive = process.stdout.isTTY && !process.env.CI;
-
 	// Single message case
 	if (messages.length === 1) {
 		const [message] = messages;
@@ -32,7 +30,7 @@ export const getCommitMessage = async (
 			return message;
 		}
 
-		if (!isInteractive) {
+		if (!isInteractive()) {
 			throw new KnownError('Interactive terminal required for commit message confirmation. Use --yes flag to skip confirmation.');
 		}
 
@@ -49,7 +47,7 @@ export const getCommitMessage = async (
 		return messages[0];
 	}
 
-	if (!isInteractive) {
+	if (!isInteractive()) {
 		throw new KnownError('Interactive terminal required for commit message selection. Use --yes flag to skip selection and use the first message.');
 	}
 

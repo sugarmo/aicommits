@@ -3,6 +3,8 @@ import { outro, log } from '@clack/prompts';
 import { getConfig, setConfigs } from '../utils/config-runtime.js';
 import { getProvider } from '../feature/providers/index.js';
 import { selectModel } from '../feature/models.js';
+import { KnownError, handleCommandError } from '../utils/error.js';
+import { isInteractive } from '../utils/headless.js';
 
 export default command(
 	{
@@ -15,6 +17,12 @@ export default command(
 	},
 	() => {
 		(async () => {
+			if (!isInteractive()) {
+				throw new KnownError(
+					'Interactive terminal required for model selection.'
+				);
+			}
+
 			const config = await getConfig();
 
 			if (!config.provider) {
@@ -59,9 +67,6 @@ export default command(
 			} else {
 				outro('Model selection cancelled');
 			}
-		})().catch((error) => {
-			console.error(`❌ Model selection failed: ${error.message}`);
-			process.exit(1);
-		});
+		})().catch(handleCommandError);
 	}
 );

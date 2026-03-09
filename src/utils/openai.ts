@@ -4,6 +4,10 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { KnownError } from './error.js';
 import type { CommitType } from './config-types.js';
 import { generatePrompt, commitTypeFormats } from './prompt.js';
+import { isHeadless } from './headless.js';
+
+const shouldLogDebug = () =>
+	Boolean(process.env.DEBUG || process.env.AICOMMITS_DEBUG) && !isHeadless();
 
 /**
  * Extracts the actual response from reasoning model outputs.
@@ -82,7 +86,7 @@ export const generateCommitMessage = async (
 	customPrompt?: string,
 	headers?: Record<string, string>
 ) => {
-	if (process.env.DEBUG) {
+	if (shouldLogDebug()) {
 		console.log('Diff being sent to AI:');
 		console.log(diff);
 	}
@@ -163,8 +167,6 @@ export const generateCommitMessage = async (
 		return { messages, usage };
 	} catch (error) {
 		const errorAsAny = error as any;
-
-		console.log(errorAsAny);
 
 		if (errorAsAny.code === 'ENOTFOUND') {
 			throw new KnownError(
@@ -260,8 +262,6 @@ Do not add thanks, explanations, or any text outside the commit message.`;
 		return { messages: [combinedMessage], usage: result.usage };
 	} catch (error) {
 		const errorAsAny = error as any;
-
-		console.log(errorAsAny);
 
 		throw errorAsAny;
 	}

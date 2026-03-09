@@ -6,6 +6,7 @@ import { getConfig } from '../utils/config-runtime.js';
 import { getProvider } from '../feature/providers/index.js';
 import { generateCommitMessage } from '../utils/openai.js';
 import { KnownError, handleCommandError } from '../utils/error.js';
+import { isHeadless } from '../utils/headless.js';
 
 const [messageFilePath, commitSource] = process.argv.slice(2);
 
@@ -28,7 +29,10 @@ export default () =>
 			return;
 		}
 
-		intro(bgCyan(black(' aicommits ')));
+		const headless = isHeadless();
+		if (!headless) {
+			intro(bgCyan(black(' aicommits ')));
+		}
 
 		const config = await getConfig({});
 
@@ -60,8 +64,8 @@ export default () =>
 		// Use the unified model or provider default
 		let model = config.OPENAI_MODEL || providerInstance.getDefaultModel();
 
-		const s = spinner();
-		s.start('The AI is analyzing your changes');
+		const s = headless ? null : spinner();
+		s?.start('The AI is analyzing your changes');
 		let messages: string[];
 		try {
 			const result = await generateCommitMessage(
@@ -79,7 +83,7 @@ export default () =>
 			);
 			messages = result.messages;
 		} finally {
-			s.stop('Changes analyzed');
+			s?.stop('Changes analyzed');
 		}
 
 		/**
@@ -119,5 +123,7 @@ export default () =>
 		const newContent = instructions + '\n' + currentContent;
 		await fs.writeFile(messageFilePath, newContent);
 
-		outro(`${green('✔')} Saved commit message!`);
+		if (!headless) {
+			outro(`${green('✔')} Saved commit message!`);
+		}
 	})().catch(handleCommandError);

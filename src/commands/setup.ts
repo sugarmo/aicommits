@@ -7,6 +7,8 @@ import {
 	getAvailableProviders,
 	getProviderBaseUrl,
 } from '../feature/providers/index.js';
+import { KnownError, handleCommandError } from '../utils/error.js';
+import { isInteractive } from '../utils/headless.js';
 
 export default command(
 	{
@@ -18,6 +20,12 @@ export default command(
 	},
 	(argv) => {
 		(async () => {
+			if (!isInteractive()) {
+				throw new KnownError(
+					'Interactive terminal required for setup. Run `aicommits setup` in a terminal.'
+				);
+			}
+
 			let config = await getConfig();
 
 			const providerOptions = getAvailableProviders();
@@ -156,9 +164,6 @@ export default command(
 			// 		console.error(`❌ Failed to create git alias: ${(error as Error).message}`);
 			// 	}
 			// }
-		})().catch((error) => {
-			console.error(`❌ Setup failed: ${error.message}`);
-			process.exit(1);
-		});
+		})().catch(handleCommandError);
 	}
 );
