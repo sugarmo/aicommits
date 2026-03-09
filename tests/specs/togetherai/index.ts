@@ -66,7 +66,7 @@ export default testSuite(({ describe }) => {
 			const { messages: commitMessages } = await generateCommitMessage(
 				'https://api.together.xyz',
 				TOGETHER_API_KEY!,
-				'moonshotai/Kimi-K2-Instruct-0905',
+				'Qwen/Qwen3-Next-80B-A3B-Instruct',
 				config.locale,
 				gitDiff,
 				config.generate,
