@@ -1,6 +1,7 @@
 <div align="center">
   <div>
     <img src=".github/screenshot.png" alt="AI Commits"/>
+    <img src="./aic.png" width="50" alt="AI Commits"/>
     <h1 align="center">AI Commits</h1>
   </div>
   <p>A CLI that writes your git commit messages for you with AI. Never write a commit message again.</p>
@@ -103,6 +104,7 @@ aicommits --all # or -a
 - `--exclude` or `-x`: Files to exclude from AI analysis
 - `--type` or `-t`: Git commit message format (default: **plain**). Supports `plain`, `conventional`, and `gitmoji`
 - `--prompt` or `-p`: Custom prompt to guide the LLM behavior (e.g., specific language, style instructions)
+- `--no-verify` or `-n`: Bypass pre-commit hooks while committing (default: **false**)
 - `--yes` or `-y`: Skip confirmation when committing after message generation (default: **false**)
 
 #### Generate multiple recommendations
