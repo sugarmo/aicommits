@@ -18,10 +18,8 @@
 1. Install _aicommits_:
 
    ```sh
-   npm install -g aicommits@develop
+   npm install -g aicommits
    ```
-
-   > We need @develop since v2 is still not released as latest/main!
 
 2. Run the setup command to choose your AI provider:
 
@@ -72,7 +70,7 @@ aicommits --version
 If it's not the [latest version](https://github.com/Nutlope/aicommits/releases/latest), run:
 
 ```sh
-npm install -g aicommits@develop
+npm install -g aicommits
 ```
 
 ## Usage
