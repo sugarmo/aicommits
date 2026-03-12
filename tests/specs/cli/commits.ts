@@ -1,6 +1,5 @@
 import { testSuite, expect } from 'manten';
 import {
-	assertOpenAiToken,
 	createFixture,
 	createGit,
 	files,
@@ -9,11 +8,18 @@ import {
 export default testSuite(({ describe }) => {
 	if (process.platform === 'win32') {
 		// https://github.com/nodejs/node/issues/31409
-		console.warn('Skipping tests on Windows because Node.js spawn cant open TTYs');
+		console.warn(
+			'Skipping tests on Windows because Node.js spawn cant open TTYs'
+		);
 		return;
 	}
 
-	assertOpenAiToken();
+	if (!process.env.OPENAI_API_KEY) {
+		console.warn(
+			'⚠️  process.env.OPENAI_API_KEY is necessary to run these tests. Skipping...'
+		);
+		return;
+	}
 
 	describe('Commits', async ({ test, describe }) => {
 		test('Excludes files', async () => {
@@ -21,10 +27,15 @@ export default testSuite(({ describe }) => {
 			const git = await createGit(fixture.path);
 
 			await git('add', ['data.json']);
-			const statusBefore = await git('status', ['--porcelain', '--untracked-files=no']);
+			const statusBefore = await git('status', [
+				'--porcelain',
+				'--untracked-files=no',
+			]);
 			expect(statusBefore.stdout).toBe('A  data.json');
 
-			const { stdout, exitCode } = await aicommits(['--exclude', 'data.json'], { reject: false });
+			const { stdout, exitCode } = await aicommits(['--exclude', 'data.json'], {
+				reject: false,
+			});
 			expect(exitCode).toBe(1);
 			expect(stdout).toMatch('No staged changes found.');
 			await fixture.rm();
@@ -47,10 +58,15 @@ export default testSuite(({ describe }) => {
 
 			await committing;
 
-			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+			const statusAfter = await git('status', [
+				'--porcelain',
+				'--untracked-files=no',
+			]);
 			expect(statusAfter.stdout).toBe('');
 
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
+			const { stdout: commitMessage } = await git('log', [
+				'--pretty=format:%s',
+			]);
 			console.log({
 				commitMessage,
 				length: commitMessage.length,
@@ -81,7 +97,9 @@ export default testSuite(({ describe }) => {
 
 			await committing;
 
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
+			const { stdout: commitMessage } = await git('log', [
+				'--pretty=format:%s',
+			]);
 			console.log({
 				commitMessage,
 				length: commitMessage.length,
@@ -118,7 +136,10 @@ export default testSuite(({ describe }) => {
 			const statusAfter = await git('status', ['--short']);
 			expect(statusAfter.stdout).toBe('?? .aicommits');
 
-			const { stdout: commitMessage } = await git('log', ['-n1', '--pretty=format:%s']);
+			const { stdout: commitMessage } = await git('log', [
+				'-n1',
+				'--pretty=format:%s',
+			]);
 			console.log({
 				commitMessage,
 				length: commitMessage.length,
@@ -128,7 +149,9 @@ export default testSuite(({ describe }) => {
 			await fixture.rm();
 		});
 
-		test('Accepts --generate flag, overriding config', async ({ onTestFail }) => {
+		test('Accepts --generate flag, overriding config', async ({
+			onTestFail,
+		}) => {
 			const { fixture, aicommits } = await createFixture({
 				...files,
 				'.aicommits': `${files['.aicommits']}\ngenerate=4`,
@@ -138,9 +161,7 @@ export default testSuite(({ describe }) => {
 			await git('add', ['data.json']);
 
 			// Generate flag should override generate config
-			const committing = aicommits([
-				'--generate', '2',
-			]);
+			const committing = aicommits(['--generate', '2']);
 
 			// Hit enter to accept the commit message
 			committing.stdout!.on('data', function onPrompt(buffer: Buffer) {
@@ -158,10 +179,15 @@ export default testSuite(({ describe }) => {
 			onTestFail(() => console.log({ stdout }));
 			expect(countChoices).toBe(2);
 
-			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+			const statusAfter = await git('status', [
+				'--porcelain',
+				'--untracked-files=no',
+			]);
 			expect(statusAfter.stdout).toBe('');
 
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
+			const { stdout: commitMessage } = await git('log', [
+				'--pretty=format:%s',
+			]);
 			console.log({
 				commitMessage,
 				length: commitMessage.length,
@@ -173,7 +199,8 @@ export default testSuite(({ describe }) => {
 
 		test('Generates Japanese commit message via locale config', async () => {
 			// https://stackoverflow.com/a/15034560/911407
-			const japanesePattern = /[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFF9F\u4E00-\u9FAF\u3400-\u4DBF]/;
+			const japanesePattern =
+				/[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFF9F\u4E00-\u9FAF\u3400-\u4DBF]/;
 
 			const { fixture, aicommits } = await createFixture({
 				...files,
@@ -195,10 +222,15 @@ export default testSuite(({ describe }) => {
 
 			await committing;
 
-			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+			const statusAfter = await git('status', [
+				'--porcelain',
+				'--untracked-files=no',
+			]);
 			expect(statusAfter.stdout).toBe('');
 
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
+			const { stdout: commitMessage } = await git('log', [
+				'--pretty=format:%s',
+			]);
 			console.log({
 				commitMessage,
 				length: commitMessage.length,
@@ -211,7 +243,8 @@ export default testSuite(({ describe }) => {
 
 		describe('commit types', ({ test }) => {
 			test('Should not use conventional commits by default', async () => {
-				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
+				const conventionalCommitPattern =
+					/(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
 				});
@@ -231,7 +264,10 @@ export default testSuite(({ describe }) => {
 
 				await committing;
 
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+				const statusAfter = await git('status', [
+					'--porcelain',
+					'--untracked-files=no',
+				]);
 				expect(statusAfter.stdout).toBe('');
 
 				const { stdout: commitMessage } = await git('log', ['--oneline']);
@@ -242,7 +278,8 @@ export default testSuite(({ describe }) => {
 			});
 
 			test('Conventional commits', async () => {
-				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
+				const conventionalCommitPattern =
+					/(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
 					'.aicommits': `${files['.aicommits']}\ntype=conventional`,
@@ -263,7 +300,10 @@ export default testSuite(({ describe }) => {
 
 				await committing;
 
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+				const statusAfter = await git('status', [
+					'--porcelain',
+					'--untracked-files=no',
+				]);
 				expect(statusAfter.stdout).toBe('');
 
 				const { stdout: commitMessage } = await git('log', ['--oneline']);
@@ -274,7 +314,8 @@ export default testSuite(({ describe }) => {
 			});
 
 			test('Accepts --type flag, overriding config', async () => {
-				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
+				const conventionalCommitPattern =
+					/(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
 					'.aicommits': `${files['.aicommits']}\ntype=other`,
@@ -284,9 +325,7 @@ export default testSuite(({ describe }) => {
 				await git('add', ['data.json']);
 
 				// Generate flag should override generate config
-				const committing = aicommits([
-					'--type', 'conventional',
-				]);
+				const committing = aicommits(['--type', 'conventional']);
 
 				committing.stdout!.on('data', (buffer: Buffer) => {
 					const stdout = buffer.toString();
@@ -298,7 +337,10 @@ export default testSuite(({ describe }) => {
 
 				await committing;
 
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+				const statusAfter = await git('status', [
+					'--porcelain',
+					'--untracked-files=no',
+				]);
 				expect(statusAfter.stdout).toBe('');
 
 				const { stdout: commitMessage } = await git('log', ['--oneline']);
@@ -308,8 +350,9 @@ export default testSuite(({ describe }) => {
 				await fixture.rm();
 			});
 
-			test('Accepts empty --type flag', async () => {
-				const conventionalCommitPattern = /(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
+			test('Accepts plain --type flag', async () => {
+				const conventionalCommitPattern =
+					/(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test):\s/;
 				const { fixture, aicommits } = await createFixture({
 					...files,
 					'.aicommits': `${files['.aicommits']}\ntype=conventional`,
@@ -318,9 +361,7 @@ export default testSuite(({ describe }) => {
 
 				await git('add', ['data.json']);
 
-				const committing = aicommits([
-					'--type', '',
-				]);
+				const committing = aicommits(['--type', 'plain']);
 
 				committing.stdout!.on('data', (buffer: Buffer) => {
 					const stdout = buffer.toString();
@@ -332,7 +373,10 @@ export default testSuite(({ describe }) => {
 
 				await committing;
 
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+				const statusAfter = await git('status', [
+					'--porcelain',
+					'--untracked-files=no',
+				]);
 				expect(statusAfter.stdout).toBe('');
 
 				const { stdout: commitMessage } = await git('log', ['--oneline']);
@@ -344,7 +388,7 @@ export default testSuite(({ describe }) => {
 		});
 
 		describe('proxy', ({ test }) => {
-			test('Fails on invalid proxy', async () => {
+			test('Fails on deprecated proxy config', async () => {
 				const { fixture, aicommits } = await createFixture({
 					...files,
 					'.aicommits': `${files['.aicommits']}\nproxy=http://localhost:1234`,
@@ -357,52 +401,10 @@ export default testSuite(({ describe }) => {
 					reject: false,
 				});
 
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
 				const { stdout, exitCode } = await committing;
 
 				expect(exitCode).toBe(1);
-				expect(stdout).toMatch('connect ECONNREFUSED');
-
-				await fixture.rm();
-			});
-
-			test('Connects with config', async () => {
-				const { fixture, aicommits } = await createFixture({
-					...files,
-					'.aicommits': `${files['.aicommits']}\nproxy=http://localhost:8888`,
-				});
-				const git = await createGit(fixture.path);
-
-				await git('add', ['data.json']);
-
-				const committing = aicommits();
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
-				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log({
-					commitMessage,
-					length: commitMessage.length,
-				});
-				expect(commitMessage.length).toBeLessThanOrEqual(50);
+				expect(stdout).toMatch('The "proxy" config property is deprecated and no longer supported');
 
 				await fixture.rm();
 			});
@@ -429,10 +431,15 @@ export default testSuite(({ describe }) => {
 
 				await committing;
 
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
+				const statusAfter = await git('status', [
+					'--porcelain',
+					'--untracked-files=no',
+				]);
 				expect(statusAfter.stdout).toBe('');
 
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
+				const { stdout: commitMessage } = await git('log', [
+					'--pretty=format:%s',
+				]);
 				console.log({
 					commitMessage,
 					length: commitMessage.length,
@@ -442,5 +449,7 @@ export default testSuite(({ describe }) => {
 				await fixture.rm();
 			});
 		});
+
+
 	});
 });

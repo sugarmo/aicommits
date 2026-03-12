@@ -1,7 +1,6 @@
 import path from 'path';
 import { testSuite, expect } from 'manten';
 import {
-	assertOpenAiToken,
 	createFixture,
 	createGit,
 	files,
@@ -9,7 +8,12 @@ import {
 
 export default testSuite(({ describe }) => {
 	describe('Git hook', ({ test }) => {
-		assertOpenAiToken();
+		if (!process.env.OPENAI_API_KEY) {
+			console.warn(
+				'⚠️  process.env.OPENAI_API_KEY is necessary to run these tests. Skipping...'
+			);
+			return;
+		}
 
 		test('errors when not in Git repo', async () => {
 			const { fixture, aicommits } = await createFixture(files);

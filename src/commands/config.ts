@@ -1,37 +1,63 @@
 import { command } from 'cleye';
 import { red } from 'kolorist';
-import { hasOwn, getConfig, setConfigs } from '../utils/config.js';
-import { KnownError, handleCliError } from '../utils/error.js';
+import { hasOwn } from '../utils/config-types.js';
+import { getConfig, setConfigs } from '../utils/config-runtime.js';
+import { KnownError, handleCommandError } from '../utils/error.js';
 
-export default command({
-	name: 'config',
+export default command(
+	{
+		name: 'config',
+		description: 'View or modify configuration settings',
+		help: {
+			description: 'View or modify configuration settings',
+		},
+		parameters: ['[mode]', '[key=value...]'],
+	},
+	(argv) => {
+		(async () => {
+			const [mode, ...keyValues] = argv._;
 
-	parameters: ['<mode>', '<key=value...>'],
-}, (argv) => {
-	(async () => {
-		const { mode, keyValue: keyValues } = argv._;
+			// If no mode provided, show all current config (excluding defaults)
+			if (!mode) {
+				const config = await getConfig({}, {}, true);
 
-		if (mode === 'get') {
-			const config = await getConfig({}, true);
-			for (const key of keyValues) {
-				if (hasOwn(config, key)) {
-					console.log(`${key}=${config[key as keyof typeof config]}`);
+				console.log('Provider:', config.provider);
+				if (config.OPENAI_API_KEY) {
+					console.log('API Key:', `${config.OPENAI_API_KEY.substring(0, 4)}****`);
 				}
+				if (config.OPENAI_BASE_URL) {
+					console.log('Base URL:', config.OPENAI_BASE_URL);
+				}
+				if (config.OPENAI_MODEL) {
+					console.log('Model:', config.OPENAI_MODEL);
+				}
+
+				return;
 			}
-			return;
-		}
 
-		if (mode === 'set') {
-			await setConfigs(
-				keyValues.map(keyValue => keyValue.split('=') as [string, string]),
-			);
-			return;
-		}
+			if (mode === 'get') {
+				const config = await getConfig({}, {}, true);
+				const sensitiveKeys = ['OPENAI_API_KEY', 'TOGETHER_API_KEY', 'api-key'];
+				for (const key of keyValues) {
+					if (hasOwn(config, key)) {
+						const value = config[key as keyof typeof config];
+						const displayValue = sensitiveKeys.includes(key)
+							? `${String(value).substring(0, 4)}****`
+							: String(value);
+						console.log(`${key}=${displayValue}`);
+					}
+				}
+				return;
+			}
 
-		throw new KnownError(`Invalid mode: ${mode}`);
-	})().catch((error) => {
-		console.error(`${red('✖')} ${error.message}`);
-		handleCliError(error);
-		process.exit(1);
-	});
-});
+			if (mode === 'set') {
+				await setConfigs(
+					keyValues.map((keyValue) => keyValue.split('=') as [string, string])
+				);
+				return;
+			}
+
+			throw new KnownError(`Invalid mode: ${mode}`);
+		})().catch(handleCommandError);
+	}
+);

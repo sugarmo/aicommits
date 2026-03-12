@@ -1,0 +1,14 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Extension",
+			"type": "extension",
+			"request": "launch",
+			"runtimeExecutable": "/Applications/Cursor.app/Contents/MacOS/Cursor",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+			]
+		}
+	]
+}
