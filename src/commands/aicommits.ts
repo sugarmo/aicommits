@@ -247,16 +247,8 @@ export default async (
 		} finally {
 			if (s) {
 				const duration = Date.now() - startTime;
-				let tokensStr = '';
-				if (usage?.total_tokens) {
-					const tokens = usage.total_tokens;
-					const formattedTokens =
-						tokens >= 1000 ? `${(tokens / 1000).toFixed(0)}k` : tokens.toString();
-					const speed = Math.round(tokens / (duration / 1000));
-					tokensStr = `, ${formattedTokens} tokens (${speed} tokens/s)`;
-				}
 				s.stop(
-					`✅ Changes analyzed in ${(duration / 1000).toFixed(1)}s${tokensStr}`
+					`✅ Changes analyzed in ${(duration / 1000).toFixed(1)}s`
 				);
 			}
 		}
