@@ -61,13 +61,19 @@ This will guide you through:
 
 Check the installed version with:
 
-```
-
+```sh
 aicommits --version
-
 ```
 
-If it's not the [latest version](https://github.com/Nutlope/aicommits/releases/latest), run:
+To update to the latest version, run:
+
+```sh
+aicommits update
+```
+
+This will automatically detect your package manager (npm, pnpm, yarn, or bun) and update using the correct command.
+
+Alternatively, you can manually update:
 
 ```sh
 npm install -g aicommits
@@ -232,6 +238,21 @@ This will:
 - Fetch available models from your provider's API
 - Let you select from available models or enter a custom model name
 - Update your configuration automatically
+
+### Updating aicommits
+
+To update to the latest version, run:
+
+```sh
+aicommits update
+```
+
+This will:
+
+- Check for the latest version on npm
+- Detect your package manager (npm, pnpm, yarn, or bun)
+- Update using the appropriate command
+- Show progress and confirm when complete
 
 ### Reading a configuration value
 

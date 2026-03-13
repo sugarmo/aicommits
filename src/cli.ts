@@ -11,6 +11,7 @@ import setupCommand from './commands/setup.js';
 import modelCommand from './commands/model.js';
 import hookCommand, { isCalledFromGitHook } from './commands/hook.js';
 import prCommand from './commands/pr.js';
+import updateCommand from './commands/update.js';
 import { checkAndAutoUpdate } from './utils/auto-update.js';
 import { isHeadless } from './utils/headless.js';
 
@@ -97,7 +98,7 @@ cli(
 		},
 		},
 
-		commands: [configCommand, setupCommand, modelCommand, hookCommand, prCommand],
+		commands: [configCommand, setupCommand, modelCommand, hookCommand, prCommand, updateCommand],
 
 		help: {
 			description,

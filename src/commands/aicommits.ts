@@ -247,16 +247,8 @@ export default async (
 		} finally {
 			if (s) {
 				const duration = Date.now() - startTime;
-				let tokensStr = '';
-				if (usage?.total_tokens) {
-					const tokens = usage.total_tokens;
-					const formattedTokens =
-						tokens >= 1000 ? `${(tokens / 1000).toFixed(0)}k` : tokens.toString();
-					const speed = Math.round(tokens / (duration / 1000));
-					tokensStr = `, ${formattedTokens} tokens (${speed} tokens/s)`;
-				}
 				s.stop(
-					`✅ Changes analyzed in ${(duration / 1000).toFixed(1)}s${tokensStr}`
+					`✅ Changes analyzed in ${(duration / 1000).toFixed(1)}s`
 				);
 			}
 		}
@@ -319,6 +311,18 @@ export default async (
 				}
 				return;
 			}
+
+			// Handle pre-commit hook failures or other git commit errors
+			if (error.exitCode !== undefined) {
+				outro(
+					`${red('✘')} Commit failed. This may be due to pre-commit hooks.`
+				);
+				console.error(
+					`  ${dim('Use')} --no-verify ${dim('to bypass pre-commit hooks')}`
+				);
+				process.exit(1);
+			}
+
 			throw error;
 		}
 	})().catch(handleCommandError);
