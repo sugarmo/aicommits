@@ -311,6 +311,18 @@ export default async (
 				}
 				return;
 			}
+
+			// Handle pre-commit hook failures or other git commit errors
+			if (error.exitCode !== undefined) {
+				outro(
+					`${red('✘')} Commit failed. This may be due to pre-commit hooks.`
+				);
+				console.error(
+					`  ${dim('Use')} --no-verify ${dim('to bypass pre-commit hooks')}`
+				);
+				process.exit(1);
+			}
+
 			throw error;
 		}
 	})().catch(handleCommandError);

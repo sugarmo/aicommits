@@ -182,6 +182,17 @@ export const generateCommitMessage = async ({
 	} catch (error) {
 		const errorAsAny = error as any;
 
+		// Handle AbortController timeout
+		if (
+			errorAsAny.name === 'AbortError' ||
+			errorAsAny.message?.includes('aborted') ||
+			errorAsAny.message?.includes('This operation was aborted')
+		) {
+			throw new KnownError(
+				`Request timed out after ${timeout / 1000} seconds. The API took too long to respond. Try again or use a different model.`
+			);
+		}
+
 		if (errorAsAny.code === 'ENOTFOUND') {
 			throw new KnownError(
 				`Error connecting to ${errorAsAny.hostname} (${errorAsAny.syscall}). Are you connected to the internet?`
@@ -289,6 +300,17 @@ Do not add thanks, explanations, or any text outside the commit message.`;
 		return { messages: [combinedMessage], usage: result.usage };
 	} catch (error) {
 		const errorAsAny = error as any;
+
+		// Handle AbortController timeout
+		if (
+			errorAsAny.name === 'AbortError' ||
+			errorAsAny.message?.includes('aborted') ||
+			errorAsAny.message?.includes('This operation was aborted')
+		) {
+			throw new KnownError(
+				`Request timed out after ${timeout / 1000} seconds. The API took too long to respond. Try again or use a different model.`
+			);
+		}
 
 		throw errorAsAny;
 	}
