@@ -1,6 +1,6 @@
 {
 	"name": "aicommits",
-	"version": "3.0.0",
+	"version": "3.0.1",
 	"description": "Writes your git commit messages for you with AI",
 	"keywords": [
 		"ai",
