@@ -246,6 +246,34 @@ const getSpecificityInstruction = (largeChangeSet: boolean) => (
 		: 'Be specific at the initiative/subsystem level with concrete architecture/API impact, and avoid per-file or per-function enumeration.'
 );
 
+const getOutcomeFirstInstruction = (
+	includeDetails: boolean,
+	detailsStyle: DetailsStyle,
+) => {
+	const rules = [
+		'Outcome-first framing:',
+		'- Lead with the main product, user, runtime, or workflow outcome of the change.',
+		'- Treat implementation mechanisms as supporting detail when they are only the means to that outcome.',
+		'- Prefer "why this change matters / what it now enables, prevents, or improves" over naming the raw technique used.',
+		'- Mention low-level mechanisms such as actor adoption, refactors, helper extraction, or thread/queue changes only when they are themselves the primary meaningful change.',
+		'- Example to prefer: "Move image analysis off the main thread to keep the UI responsive."',
+		'- Example to avoid: "Add actor for image analysis."',
+	];
+
+	if (!includeDetails) {
+		rules.push('- Even in title-only mode, optimize for the end result rather than the engineering tactic.');
+		return rules.join('\n');
+	}
+
+	if (detailsStyle === 'list' || detailsStyle === 'markdown') {
+		rules.push('- If a body is needed, the first bullet/section should explain the outcome before supporting implementation details.');
+	} else {
+		rules.push('- If a body is needed, open with the outcome before supporting implementation details.');
+	}
+
+	return rules.join('\n');
+};
+
 const getThemeGroupingInstruction = (
 	includeDetails: boolean,
 	detailsStyle: DetailsStyle,
@@ -377,13 +405,14 @@ export const generatePrompt = (
 	const includeModuleHint = hasUsableChangedFiles(options.changedFiles);
 
 	return [
-		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on what was changed, not just file names.',
+		'Generate a concise git commit message in present tense that precisely describes the key changes in the following code diff. Focus on the dominant outcome of what changed, not just file names or implementation tactics.',
 		getDetailsInstruction(includeDetails, detailsStyle, detailColumnGuide),
 		getLanguageInstruction(locale),
 		getTitleLengthGuidanceInstruction(maxLength),
 		'Exclude anything unnecessary such as translation. Your entire response will be passed directly into git commit.',
 		'IMPORTANT: Do not include any explanations, introductions, or additional text. Do not wrap the commit message in quotes or any other formatting. Respond with ONLY the commit message text.',
 		getSpecificityInstruction(largeChangeSet),
+		getOutcomeFirstInstruction(includeDetails, detailsStyle),
 		getThemeGroupingInstruction(includeDetails, detailsStyle),
 		getLargeChangeSetInstruction(includeDetails, detailsStyle, largeChangeSet),
 		getChangedFilesInstruction(options.changedFiles),

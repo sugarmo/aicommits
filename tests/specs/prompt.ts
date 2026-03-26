@@ -9,6 +9,9 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('Provide only the title, no description or body.');
 			expect(prompt).toMatch('Commit title length guide: target 50 characters or fewer.');
 			expect(prompt).toMatch('writing guide, not a strict hard cutoff');
+			expect(prompt).toMatch('Outcome-first framing:');
+			expect(prompt).toMatch('Lead with the main product, user, runtime, or workflow outcome of the change.');
+			expect(prompt).toMatch('Example to avoid: "Add actor for image analysis."');
 		});
 
 		test('supports details and custom conventional instructions', () => {
@@ -48,6 +51,7 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('Example to avoid: "refactor: refactor ..."');
 			expect(prompt).toMatch('The body should be 3-6 concise technical prose sentences');
 			expect(prompt).toMatch('Do not use section labels like "Impact:"');
+			expect(prompt).toMatch('open with the outcome before supporting implementation details');
 		});
 
 		test('does not include score-based type selection workflow', () => {
