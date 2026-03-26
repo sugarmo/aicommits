@@ -42,14 +42,10 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.29.2
+          cache: npm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Verify tag matches package version
         run: |
@@ -62,7 +58,7 @@ jobs:
           fi
 
       - name: Build
-        run: pnpm build
+        run: npm run build
 
       - name: Publish package
         run: npm publish --access public
