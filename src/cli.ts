@@ -50,6 +50,14 @@ cli(
 				type: Boolean,
 				description: 'Stream and print model reasoning while generating messages',
 			},
+			reasoningEffort: {
+				type: String,
+				description: 'Reasoning effort to request: none, low, medium, high, or xhigh',
+			},
+			apiMode: {
+				type: String,
+				description: 'API mode to use: responses (default) or chat',
+			},
 			detailsStyle: {
 				type: String,
 				description: 'Body style when --details is enabled: paragraph, list, or markdown',
@@ -72,7 +80,7 @@ cli(
 			},
 			baseUrl: {
 				type: String,
-				description: 'API base URL for chat completions (for example https://api.openai.com/v1)',
+				description: 'API base URL for Responses API (default) or Chat Completions (for example https://api.openai.com/v1)',
 			},
 			confirm: {
 				type: Boolean,
@@ -119,6 +127,8 @@ cli(
 				argv.flags.type,
 				argv.flags.details,
 				argv.flags.showReasoning,
+				argv.flags.reasoningEffort,
+				argv.flags.apiMode,
 				argv.flags.detailsStyle,
 				argv.flags.instructions,
 				argv.flags.conventionalFormat,

@@ -1,12 +1,16 @@
 import https, { type RequestOptions } from 'https';
 import type { ClientRequest, IncomingMessage } from 'http';
-import type { CreateChatCompletionRequest, CreateChatCompletionResponse } from 'openai';
+import type { CreateChatCompletionRequest } from 'openai';
 import {
 	type TiktokenModel,
 } from '@dqbd/tiktoken';
 import createHttpsProxyAgent from 'https-proxy-agent';
 import { KnownError } from './error.js';
-import type { CommitType } from './config.js';
+import type {
+	ApiMode,
+	CommitType,
+	ConfiguredReasoningEffort,
+} from './config.js';
 import {
 	generatePrompt,
 	parseConventionalTypes,
@@ -20,6 +24,130 @@ type CompletionStreamEvent = {
 };
 
 type CompletionStreamCallback = (event: CompletionStreamEvent) => void;
+
+type GeneratedMessage = {
+	role: string;
+	content: string;
+	reasoning_content?: string;
+};
+
+type GeneratedChoice = {
+	index: number;
+	finish_reason?: string | null;
+	message: GeneratedMessage;
+};
+
+type GeneratedResponse = {
+	model: string;
+	choices: GeneratedChoice[];
+};
+
+type ReasoningTagParseState = {
+	carry: string;
+	inReasoningBlock: boolean;
+};
+
+const thinkTagOpen = '<think>';
+const thinkTagClose = '</think>';
+
+const createReasoningTagParseState = (): ReasoningTagParseState => ({
+	carry: '',
+	inReasoningBlock: false,
+});
+
+const getTrailingTagFragmentLength = (
+	text: string,
+	tag: string,
+) => {
+	const maxLength = Math.min(text.length, tag.length - 1);
+	for (let length = maxLength; length > 0; length -= 1) {
+		if (tag.startsWith(text.slice(-length))) {
+			return length;
+		}
+	}
+
+	return 0;
+};
+
+const splitReasoningTaggedChunk = (
+	chunk: string,
+	state: ReasoningTagParseState,
+) => {
+	let remainder = `${state.carry}${chunk}`;
+	const nextState: ReasoningTagParseState = {
+		carry: '',
+		inReasoningBlock: state.inReasoningBlock,
+	};
+	let content = '';
+	let reasoning = '';
+
+	while (remainder.length > 0) {
+		const activeTag = nextState.inReasoningBlock ? thinkTagClose : thinkTagOpen;
+		const tagIndex = remainder.indexOf(activeTag);
+
+		if (tagIndex === -1) {
+			const trailingFragmentLength = getTrailingTagFragmentLength(remainder, activeTag);
+			const safeText = remainder.slice(0, remainder.length - trailingFragmentLength);
+
+			if (nextState.inReasoningBlock) {
+				reasoning += safeText;
+			} else {
+				content += safeText;
+			}
+
+			nextState.carry = remainder.slice(remainder.length - trailingFragmentLength);
+			break;
+		}
+
+		const segment = remainder.slice(0, tagIndex);
+		if (nextState.inReasoningBlock) {
+			reasoning += segment;
+		} else {
+			content += segment;
+		}
+
+		nextState.inReasoningBlock = !nextState.inReasoningBlock;
+		remainder = remainder.slice(tagIndex + activeTag.length);
+	}
+
+	return {
+		content,
+		reasoning,
+		state: nextState,
+	};
+};
+
+const flushReasoningTaggedState = (state: ReasoningTagParseState) => ({
+	content: state.inReasoningBlock ? '' : state.carry,
+	reasoning: state.inReasoningBlock ? state.carry : '',
+	state: createReasoningTagParseState(),
+});
+
+export const separateReasoningBlocks = (parts: string[]) => {
+	let state = createReasoningTagParseState();
+	let content = '';
+	let reasoning = '';
+
+	for (const part of parts) {
+		const separated = splitReasoningTaggedChunk(part, state);
+		content += separated.content;
+		reasoning += separated.reasoning;
+		state = separated.state;
+	}
+
+	const flushed = flushReasoningTaggedState(state);
+	content += flushed.content;
+	reasoning += flushed.reasoning;
+
+	return {
+		content,
+		reasoning,
+	};
+};
+
+export const stripReasoningBlocksFromContent = (content: string) => (
+	separateReasoningBlocks([content]).content
+);
 
 const httpsPost = async (
 	hostname: string,
@@ -82,7 +210,10 @@ const httpsPost = async (
 	request.end();
 });
 
-const resolveChatCompletionsEndpoint = (baseUrl?: string) => {
+const resolveApiEndpoint = (
+	baseUrl: string | undefined,
+	pathnameSuffix: string,
+) => {
 	if (!baseUrl?.trim()) {
 		throw new KnownError('Please set your API base URL via `aicommits config set base-url=<https://...>`');
 	}
@@ -94,9 +225,19 @@ const resolveChatCompletionsEndpoint = (baseUrl?: string) => {
 	return {
 		hostname: parsed.hostname,
 		port: parsed.port ? Number(parsed.port) : 443,
-		path: `${normalizedPath}/chat/completions`,
+		path: `${normalizedPath}${pathnameSuffix}`,
 	};
 };
+
+const resolveChatCompletionsEndpoint = (baseUrl?: string) => resolveApiEndpoint(
+	baseUrl,
+	'/chat/completions',
+);
+
+const resolveResponsesEndpoint = (baseUrl?: string) => resolveApiEndpoint(
+	baseUrl,
+	'/responses',
+);
 
 const createChatCompletion = async (
 	apiKey: string,
@@ -106,7 +247,7 @@ const createChatCompletion = async (
 	baseUrl?: string,
 	onStreamEvent?: CompletionStreamCallback,
 	requestOptions?: Record<string, unknown>,
-) => {
+): Promise<GeneratedResponse> => {
 	const requestBody = {
 		...json,
 		...requestOptions,
@@ -114,6 +255,7 @@ const createChatCompletion = async (
 	} as CreateChatCompletionRequest;
 
 	let liveStreamBuffer = '';
+	const liveReasoningStates = new Map<number, ReasoningTagParseState>();
 	const emitStreamEventFromPayload = (payload: Record<string, unknown>) => {
 		if (!onStreamEvent) {
 			return;
@@ -148,10 +290,35 @@ const createChatCompletion = async (
 			}
 
 			if (typeof deltaRecord.content === 'string' && deltaRecord.content.length > 0) {
-				onStreamEvent({
-					kind: 'content',
-					text: deltaRecord.content,
-				});
+				const index = typeof (choice as Record<string, unknown>).index === 'number'
+					? (choice as Record<string, unknown>).index as number
+					: 0;
+
+				if (reasoningContent) {
+					onStreamEvent({
+						kind: 'content',
+						text: deltaRecord.content,
+					});
+					continue;
+				}
+
+				const liveState = liveReasoningStates.get(index) || createReasoningTagParseState();
+				const separated = splitReasoningTaggedChunk(deltaRecord.content, liveState);
+				liveReasoningStates.set(index, separated.state);
+
+				if (separated.reasoning) {
+					onStreamEvent({
+						kind: 'reasoning',
+						text: separated.reasoning,
+					});
+				}
+
+				if (separated.content) {
+					onStreamEvent({
+						kind: 'content',
+						text: separated.content,
+					});
+				}
 			}
 		}
 	};
@@ -222,7 +389,34 @@ const createChatCompletion = async (
 	}
 
 	if (trimmed.startsWith('{')) {
-		return JSON.parse(trimmed) as CreateChatCompletionResponse;
+		const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+		const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
+		return {
+			model: typeof parsed.model === 'string' ? parsed.model : '',
+			choices: choices.map((choice, index) => {
+				const record = (typeof choice === 'object' && choice !== null)
+					? choice as Record<string, unknown>
+					: {};
+				const message = (
+					typeof record.message === 'object' && record.message !== null
+						? record.message as Record<string, unknown>
+						: {}
+				);
+				return {
+					index: typeof record.index === 'number' ? record.index : index,
+					finish_reason: typeof record.finish_reason === 'string' || record.finish_reason === null
+						? record.finish_reason as string | null
+						: undefined,
+					message: {
+						role: typeof message.role === 'string' ? message.role : 'assistant',
+						content: typeof message.content === 'string' ? message.content : '',
+						...(typeof message.reasoning_content === 'string'
+							? { reasoning_content: message.reasoning_content }
+							: {}),
+					},
+				};
+			}),
+		};
 	}
 
 	const streamPayloads: Array<Record<string, unknown>> = [];
@@ -257,7 +451,7 @@ const createChatCompletion = async (
 		throw new KnownError(`API Error: ${message}`);
 	}
 
-	const firstPayload = streamPayloads.find(payload => typeof payload.id === 'string') || streamPayloads[0];
+	const firstPayload = streamPayloads.find(payload => typeof payload.model === 'string') || streamPayloads[0];
 
 	type StreamChoice = {
 		index: number;
@@ -268,6 +462,7 @@ const createChatCompletion = async (
 	};
 
 	const streamChoices = new Map<number, StreamChoice>();
+	const reasoningTagStates = new Map<number, ReasoningTagParseState>();
 	for (const payload of streamPayloads) {
 		const choices = Array.isArray(payload.choices) ? payload.choices : [];
 		for (const choice of choices) {
@@ -291,7 +486,26 @@ const createChatCompletion = async (
 				}
 
 				if (typeof deltaRecord.content === 'string') {
-					existing.contentParts.push(deltaRecord.content);
+					const hasExplicitReasoning = (
+						typeof deltaRecord.reasoning_content === 'string'
+						|| typeof deltaRecord.reasoning === 'string'
+					);
+
+					if (hasExplicitReasoning) {
+						existing.contentParts.push(deltaRecord.content);
+					} else {
+						const parseState = reasoningTagStates.get(index) || createReasoningTagParseState();
+						const separated = splitReasoningTaggedChunk(deltaRecord.content, parseState);
+						reasoningTagStates.set(index, separated.state);
+
+						if (separated.content) {
+							existing.contentParts.push(separated.content);
+						}
+
+						if (separated.reasoning) {
+							existing.reasoningParts.push(separated.reasoning);
+						}
+					}
 				}
 
 				if (typeof deltaRecord.reasoning_content === 'string') {
@@ -309,6 +523,21 @@ const createChatCompletion = async (
 			}
 
 			streamChoices.set(index, existing);
+		}
+	}
+
+	for (const [index, state] of reasoningTagStates.entries()) {
+		const existing = streamChoices.get(index);
+		if (!existing) {
+			continue;
+		}
+
+		const flushed = flushReasoningTaggedState(state);
+		if (flushed.content) {
+			existing.contentParts.push(flushed.content);
+		}
+		if (flushed.reasoning) {
+			existing.reasoningParts.push(flushed.reasoning);
 		}
 	}
 
@@ -337,15 +566,9 @@ const createChatCompletion = async (
 	}
 
 	return {
-		id: typeof firstPayload.id === 'string' ? firstPayload.id : '',
-		object: 'chat.completion',
-		created: typeof firstPayload.created === 'number'
-			? firstPayload.created
-			: Math.floor(Date.now() / 1000),
 		model: typeof firstPayload.model === 'string' ? firstPayload.model : '',
-		choices: combinedChoices as unknown as CreateChatCompletionResponse['choices'],
-		usage: undefined as any,
-	} as CreateChatCompletionResponse;
+		choices: combinedChoices,
+	};
 };
 
 const createMinimalChatRequest = (
@@ -358,6 +581,293 @@ const createMinimalChatRequest = (
 	};
 
 	return request;
+};
+
+type ResponsesOutputTextPart = {
+	type?: string;
+	text?: string;
+};
+
+type ResponsesReasoningPart = {
+	type?: string;
+	text?: string;
+};
+
+type ResponsesOutputItem = {
+	type?: string;
+	role?: string;
+	content?: ResponsesOutputTextPart[];
+	summary?: ResponsesReasoningPart[];
+};
+
+type ResponsesApiResponse = {
+	model?: string;
+	output?: ResponsesOutputItem[];
+};
+
+const createMinimalResponsesRequest = (
+	model: TiktokenModel,
+	instructions: string,
+	input: string,
+) => ({
+	model,
+	instructions,
+	input,
+});
+
+const collectResponsesText = (parts: unknown) => {
+	if (!Array.isArray(parts)) {
+		return '';
+	}
+
+	return parts
+		.flatMap((part) => {
+			if (typeof part !== 'object' || part === null) {
+				return [];
+			}
+
+			const text = 'text' in part && typeof part.text === 'string'
+				? part.text
+				: '';
+
+			return text ? [text] : [];
+		})
+		.join('');
+};
+
+const convertResponsesOutputToGeneratedResponse = (
+	response: ResponsesApiResponse,
+): GeneratedResponse => {
+	const outputItems = Array.isArray(response.output) ? response.output : [];
+	const content = outputItems
+		.filter(item => item?.type === 'message' || item?.role === 'assistant')
+		.map(item => collectResponsesText(item.content))
+		.join('');
+	const reasoning = outputItems
+		.filter(item => item?.type === 'reasoning')
+		.map(item => collectResponsesText(item.summary))
+		.join('');
+
+	return {
+		model: typeof response.model === 'string' ? response.model : '',
+		choices: [
+			{
+				index: 0,
+				finish_reason: 'stop',
+				message: {
+					role: 'assistant',
+					content,
+					...(reasoning ? { reasoning_content: reasoning } : {}),
+				},
+			},
+		],
+	};
+};
+
+const createResponsesResponseFromStream = (
+	streamPayloads: Array<Record<string, unknown>>,
+) => {
+	const completedPayload = streamPayloads.find(payload => payload.type === 'response.completed');
+	if (
+		completedPayload
+		&& typeof completedPayload.response === 'object'
+		&& completedPayload.response !== null
+	) {
+		return convertResponsesOutputToGeneratedResponse(
+			completedPayload.response as ResponsesApiResponse,
+		);
+	}
+
+	const outputText = streamPayloads
+		.filter(payload => (
+			typeof payload.type === 'string'
+			&& payload.type.includes('output_text')
+			&& payload.type.endsWith('.delta')
+			&& typeof payload.delta === 'string'
+		))
+		.map(payload => payload.delta as string)
+		.join('');
+	const reasoningText = streamPayloads
+		.filter(payload => (
+			typeof payload.type === 'string'
+			&& payload.type.includes('reasoning')
+			&& payload.type.endsWith('.delta')
+			&& typeof payload.delta === 'string'
+		))
+		.map(payload => payload.delta as string)
+		.join('');
+
+	return {
+		model: '',
+		choices: [
+			{
+				index: 0,
+				finish_reason: 'stop',
+				message: {
+					role: 'assistant',
+					content: outputText,
+					...(reasoningText ? { reasoning_content: reasoningText } : {}),
+				},
+			},
+		],
+	} satisfies GeneratedResponse;
+};
+
+const createResponsesResponse = async (
+	apiKey: string,
+	json: Record<string, unknown>,
+	timeout: number,
+	proxy?: string,
+	baseUrl?: string,
+	onStreamEvent?: CompletionStreamCallback,
+	requestOptions?: Record<string, unknown>,
+): Promise<GeneratedResponse> => {
+	const requestBody = {
+		...json,
+		...requestOptions,
+		stream: true,
+	};
+
+	let liveStreamBuffer = '';
+	const emitStreamEventFromPayload = (payload: Record<string, unknown>) => {
+		if (!onStreamEvent || typeof payload.type !== 'string') {
+			return;
+		}
+
+		if (
+			payload.type.includes('reasoning')
+			&& payload.type.endsWith('.delta')
+			&& typeof payload.delta === 'string'
+		) {
+			onStreamEvent({
+				kind: 'reasoning',
+				text: payload.delta,
+			});
+			return;
+		}
+
+		if (
+			payload.type.includes('output_text')
+			&& payload.type.endsWith('.delta')
+			&& typeof payload.delta === 'string'
+		) {
+			onStreamEvent({
+				kind: 'content',
+				text: payload.delta,
+			});
+		}
+	};
+
+	const handleLiveChunk = (chunk: string) => {
+		if (!onStreamEvent) {
+			return;
+		}
+
+		liveStreamBuffer += chunk.replace(/\r\n/g, '\n');
+		let separatorIndex = liveStreamBuffer.indexOf('\n\n');
+		while (separatorIndex !== -1) {
+			const rawEvent = liveStreamBuffer.slice(0, separatorIndex);
+			liveStreamBuffer = liveStreamBuffer.slice(separatorIndex + 2);
+
+			for (const rawLine of rawEvent.split('\n')) {
+				const line = rawLine.trim();
+				if (!line.startsWith('data:')) {
+					continue;
+				}
+
+				const payload = line.slice(5).trim();
+				if (!payload || payload === '[DONE]') {
+					continue;
+				}
+
+				try {
+					emitStreamEventFromPayload(JSON.parse(payload) as Record<string, unknown>);
+				} catch {}
+			}
+
+			separatorIndex = liveStreamBuffer.indexOf('\n\n');
+		}
+	};
+
+	const endpoint = resolveResponsesEndpoint(baseUrl);
+	const { response, data } = await httpsPost(
+		endpoint.hostname,
+		endpoint.path,
+		{
+			Authorization: `Bearer ${apiKey}`,
+		},
+		requestBody,
+		timeout,
+		proxy,
+		endpoint.port,
+		handleLiveChunk,
+	);
+
+	if (
+		!response.statusCode
+		|| response.statusCode < 200
+		|| response.statusCode > 299
+	) {
+		let errorMessage = `API Error: ${response.statusCode} - ${response.statusMessage}`;
+		if (data) {
+			errorMessage += `\n\n${data}`;
+		}
+		throw new KnownError(errorMessage);
+	}
+
+	const trimmed = data.trim();
+	if (!trimmed) {
+		throw new KnownError('API Error: Empty response body');
+	}
+
+	if (trimmed.startsWith('{')) {
+		return convertResponsesOutputToGeneratedResponse(
+			JSON.parse(trimmed) as ResponsesApiResponse,
+		);
+	}
+
+	const streamPayloads: Array<Record<string, unknown>> = [];
+	for (const rawLine of trimmed.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line.startsWith('data:')) {
+			continue;
+		}
+
+		const payload = line.slice(5).trim();
+		if (!payload || payload === '[DONE]') {
+			continue;
+		}
+
+		try {
+			streamPayloads.push(JSON.parse(payload) as Record<string, unknown>);
+		} catch {}
+	}
+
+	if (streamPayloads.length === 0) {
+		throw new KnownError('API Error: Unable to parse streamed response');
+	}
+
+	const streamError = streamPayloads.find(payload => (
+		payload.type === 'error'
+		|| (
+			typeof payload.error === 'object'
+			&& payload.error !== null
+		)
+	));
+	if (streamError) {
+		if (typeof streamError.error === 'object' && streamError.error !== null) {
+			const message = 'message' in streamError.error && typeof streamError.error.message === 'string'
+				? streamError.error.message
+				: JSON.stringify(streamError.error);
+			throw new KnownError(`API Error: ${message}`);
+		}
+
+		if (typeof streamError.message === 'string') {
+			throw new KnownError(`API Error: ${streamError.message}`);
+		}
+	}
+
+	return createResponsesResponseFromStream(streamPayloads);
 };
 
 const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, '\n');
@@ -771,10 +1281,29 @@ export type CommitMessageStreamEvent = CompletionStreamEvent & {
 export type GenerateCommitMessageOptions = PromptOptions & {
 	onStreamEvent?: (event: CommitMessageStreamEvent) => void;
 	requestOptionsJson?: string;
+	apiMode?: ApiMode;
+	reasoningEffort?: ConfiguredReasoningEffort;
 	contextWindowTokens?: number;
 };
 
-const parseRequestOptionsJson = (requestOptionsJson?: string) => {
+const reasoningEffortLevels = ['none', 'low', 'medium', 'high', 'xhigh'] as const;
+type ExplicitReasoningEffort = typeof reasoningEffortLevels[number];
+
+const normalizeExplicitReasoningEffort = (value: unknown): ExplicitReasoningEffort | undefined => {
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+
+	const normalized = value.trim().toLowerCase();
+	return reasoningEffortLevels.includes(normalized as ExplicitReasoningEffort)
+		? normalized as ExplicitReasoningEffort
+		: undefined;
+};
+
+const parseRequestOptionsJson = (
+	requestOptionsJson: string | undefined,
+	apiMode: ApiMode,
+) => {
 	if (!requestOptionsJson?.trim()) {
 		return {};
 	}
@@ -801,9 +1330,96 @@ const parseRequestOptionsJson = (requestOptionsJson?: string) => {
 	// These fields are managed by internal generation logic.
 	delete requestOptions.model;
 	delete requestOptions.messages;
+	delete requestOptions.input;
+	delete requestOptions.instructions;
 	delete requestOptions.stream;
 
+	if (apiMode === 'responses') {
+		const flatReasoningEffort = normalizeExplicitReasoningEffort(requestOptions.reasoning_effort);
+		if (
+			flatReasoningEffort
+			&& (
+				typeof requestOptions.reasoning !== 'object'
+				|| requestOptions.reasoning === null
+				|| Array.isArray(requestOptions.reasoning)
+			)
+		) {
+			requestOptions.reasoning = {
+				effort: flatReasoningEffort,
+			};
+		} else if (
+			flatReasoningEffort
+			&& typeof requestOptions.reasoning === 'object'
+			&& requestOptions.reasoning !== null
+			&& !Array.isArray(requestOptions.reasoning)
+			&& normalizeExplicitReasoningEffort(
+				(requestOptions.reasoning as Record<string, unknown>).effort,
+			) === undefined
+		) {
+			requestOptions.reasoning = {
+				...(requestOptions.reasoning as Record<string, unknown>),
+				effort: flatReasoningEffort,
+			};
+		}
+
+		delete requestOptions.reasoning_effort;
+		delete requestOptions.max_completion_tokens;
+		return requestOptions;
+	}
+
+	const nestedReasoningEffort = (
+		typeof requestOptions.reasoning === 'object'
+		&& requestOptions.reasoning !== null
+		&& !Array.isArray(requestOptions.reasoning)
+	)
+		? normalizeExplicitReasoningEffort((requestOptions.reasoning as Record<string, unknown>).effort)
+		: undefined;
+	if (
+		nestedReasoningEffort
+		&& normalizeExplicitReasoningEffort(requestOptions.reasoning_effort) === undefined
+	) {
+		requestOptions.reasoning_effort = nestedReasoningEffort;
+	}
+
+	delete requestOptions.reasoning;
+	delete requestOptions.max_output_tokens;
+
 	return requestOptions;
+};
+
+export const resolveRequestOptionsForApi = (
+	requestOptionsJson: string | undefined,
+	apiMode: ApiMode,
+	reasoningEffort?: ConfiguredReasoningEffort,
+) => {
+	const requestOptions = parseRequestOptionsJson(requestOptionsJson, apiMode);
+
+	if (!reasoningEffort) {
+		return requestOptions;
+	}
+
+	if (apiMode === 'responses') {
+		const nextReasoning = (
+			typeof requestOptions.reasoning === 'object'
+			&& requestOptions.reasoning !== null
+			&& !Array.isArray(requestOptions.reasoning)
+		)
+			? requestOptions.reasoning as Record<string, unknown>
+			: {};
+
+		return {
+			...requestOptions,
+			reasoning: {
+				...nextReasoning,
+				effort: reasoningEffort,
+			},
+		};
+	}
+
+	return {
+		...requestOptions,
+		reasoning_effort: reasoningEffort,
+	};
 };
 
 const normalizeKey = (value: string) => value.trim().toLowerCase();
@@ -1017,6 +1633,7 @@ const shouldRewriteTitleToLocale = (
 const rewriteTitleToLocale = async (
 	apiKey: string,
 	model: TiktokenModel,
+	apiMode: ApiMode,
 	locale: string,
 	title: string,
 	maxLength: number,
@@ -1027,39 +1644,56 @@ const rewriteTitleToLocale = async (
 	requestOptions?: Record<string, unknown>,
 ) => {
 	const { prefix, subject } = splitConventionalTitle(title);
+	const instructions = [
+		`Rewrite ONLY this commit title into locale "${locale}".`,
+		'Keep technical meaning unchanged and keep wording concise.',
+		`Maximum title length: ${maxLength} characters.`,
+		'Return only the rewritten title text. No quotes, no code fences, no explanations.',
+		...(prefix ? [`Preserve this conventional prefix exactly: "${prefix}" and rewrite only the subject part.`] : []),
+	].join('\n');
 
-	const request: CreateChatCompletionRequest = createMinimalChatRequest(
-		model,
-		[
-			{
-				role: 'system',
-				content: [
-					`Rewrite ONLY this commit title into locale "${locale}".`,
-					'Keep technical meaning unchanged and keep wording concise.',
-					`Maximum title length: ${maxLength} characters.`,
-					'Return only the rewritten title text. No quotes, no code fences, no explanations.',
-					...(prefix ? [`Preserve this conventional prefix exactly: "${prefix}" and rewrite only the subject part.`] : []),
-				].join('\n'),
-			},
-			{
-				role: 'user',
-				content: title,
-			},
-		],
-	);
-
-	const completion = await createChatCompletion(
-		apiKey,
-		request,
-		timeout,
-		proxy,
-		baseUrl,
-		onStreamEvent,
-		requestOptions,
-	);
+	const completion = apiMode === 'responses'
+		? await createResponsesResponse(
+			apiKey,
+			createMinimalResponsesRequest(
+				model,
+				instructions,
+				title,
+			),
+			timeout,
+			proxy,
+			baseUrl,
+			onStreamEvent,
+			requestOptions,
+		)
+		: await createChatCompletion(
+			apiKey,
+			createMinimalChatRequest(
+				model,
+				[
+					{
+						role: 'system',
+						content: instructions,
+					},
+					{
+						role: 'user',
+						content: title,
+					},
+				],
+			),
+			timeout,
+			proxy,
+			baseUrl,
+			onStreamEvent,
+			requestOptions,
+		);
 
 	const rewritten = completion.choices
-		.map(choice => choice.message?.content)
+		.map(choice => (
+			typeof choice.message?.content === 'string'
+				? stripReasoningBlocksFromContent(choice.message.content)
+				: choice.message?.content
+		))
 		.find(content => typeof content === 'string');
 
 	if (!rewritten) {
@@ -1085,6 +1719,7 @@ const rewriteTitleToLocale = async (
 const enforceTitleLocale = async (
 	apiKey: string,
 	model: TiktokenModel,
+	apiMode: ApiMode,
 	locale: string,
 	message: string,
 	includeDetails: boolean,
@@ -1107,6 +1742,7 @@ const enforceTitleLocale = async (
 		const rewrittenTitle = await rewriteTitleToLocale(
 			apiKey,
 			model,
+			apiMode,
 			locale,
 			title,
 			maxLength,
@@ -1282,7 +1918,12 @@ export const generateCommitMessage = async (
 	const includeDetails = resolvedOptions.includeDetails ?? false;
 	const detailsStyle: DetailsStyle = resolvedOptions.detailsStyle ?? 'paragraph';
 	const detailColumnGuide = resolvedOptions.detailColumnGuide ?? defaultDetailColumnGuide;
-	const requestOptions = parseRequestOptionsJson(resolvedOptions.requestOptionsJson);
+	const apiMode = resolvedOptions.apiMode ?? 'responses';
+	const requestOptions = resolveRequestOptionsForApi(
+		resolvedOptions.requestOptionsJson,
+		apiMode,
+		resolvedOptions.reasoningEffort,
+	);
 	const diffBudgetChars = resolveDiffBudgetChars(resolvedOptions.contextWindowTokens);
 	const compactedDiff = compactDiffForPrompt(diff, diffBudgetChars);
 	const diffWasCompacted = compactedDiff.includes(diffCompactionNotice);
@@ -1316,33 +1957,52 @@ export const generateCommitMessage = async (
 			diffWasCompacted,
 		};
 
-		const requestPayloadMessages = [
-			{
-				role: 'system' as const,
-				content: generatePrompt(locale, maxLength, type, promptOptions),
-			},
-			{
-				role: 'user' as const,
-				content: compactedDiff,
-			},
-		];
+		const instructions = generatePrompt(locale, maxLength, type, promptOptions);
 
 		const requestCount = Math.max(1, completions);
 		const completionResponses = await Promise.all(
-			Array.from({ length: requestCount }, () => createChatCompletion(
-				apiKey,
-				createMinimalChatRequest(
-					model,
-					requestPayloadMessages,
-				),
-				timeout,
-				proxy,
-				baseUrl,
-				event => resolvedOptions.onStreamEvent?.({
-					phase: 'message',
-					...event,
-				}),
-				requestOptions,
+			Array.from({ length: requestCount }, () => (
+				apiMode === 'responses'
+					? createResponsesResponse(
+						apiKey,
+						createMinimalResponsesRequest(
+							model,
+							instructions,
+							compactedDiff,
+						),
+						timeout,
+						proxy,
+						baseUrl,
+						event => resolvedOptions.onStreamEvent?.({
+							phase: 'message',
+							...event,
+						}),
+						requestOptions,
+					)
+					: createChatCompletion(
+						apiKey,
+						createMinimalChatRequest(
+							model,
+							[
+								{
+									role: 'system' as const,
+									content: instructions,
+								},
+								{
+									role: 'user' as const,
+									content: compactedDiff,
+								},
+							],
+						),
+						timeout,
+						proxy,
+						baseUrl,
+						event => resolvedOptions.onStreamEvent?.({
+							phase: 'message',
+							...event,
+						}),
+						requestOptions,
+					)
 			)),
 		);
 
@@ -1354,7 +2014,12 @@ export const generateCommitMessage = async (
 					return [];
 				}
 
-				return [sanitizeMessage(content, includeDetails, detailsStyle, detailColumnGuide)];
+				return [sanitizeMessage(
+					stripReasoningBlocksFromContent(content),
+					includeDetails,
+					detailsStyle,
+					detailColumnGuide,
+				)];
 			})
 			.filter(Boolean);
 
@@ -1362,6 +2027,7 @@ export const generateCommitMessage = async (
 			messages.map(message => enforceTitleLocale(
 				apiKey,
 				model,
+				apiMode,
 				locale,
 				message,
 				includeDetails,

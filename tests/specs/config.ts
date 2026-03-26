@@ -110,11 +110,14 @@ export default testSuite(({ describe }) => {
 						'api-key = "top-level-key"',
 						'model = "top-level-model"',
 						'base-url = "https://api.top-level.example/v1"',
+						'api-mode = "responses"',
 						'profile = "openai"',
 						'',
 						'[profiles.openai]',
 						'model = "profile-model"',
 						'base-url = "https://api.profile.example/v1"',
+						'reasoning-effort = "high"',
+						'api-mode = "chat"',
 						'',
 					].join('\n'),
 					'utf8',
@@ -125,6 +128,12 @@ export default testSuite(({ describe }) => {
 
 				const baseUrlGet = await isolatedAicommits(['config', 'get', 'base-url']);
 				expect(baseUrlGet.stdout).toBe('base-url=https://api.profile.example/v1');
+
+				const reasoningEffortGet = await isolatedAicommits(['config', 'get', 'reasoning-effort']);
+				expect(reasoningEffortGet.stdout).toBe('reasoning-effort=high');
+
+				const apiModeGet = await isolatedAicommits(['config', 'get', 'api-mode']);
+				expect(apiModeGet.stdout).toBe('api-mode=chat');
 				await isolatedFixture.rm();
 			});
 		});
@@ -176,6 +185,54 @@ export default testSuite(({ describe }) => {
 
 				const get = await aicommits(['config', 'get', 'show-reasoning']);
 				expect(get.stdout).toBe('show-reasoning=true');
+			});
+		});
+
+		await describe('reasoning-effort', ({ test }) => {
+			test('defaults to empty', async () => {
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				const get = await isolatedAicommits(['config', 'get', 'reasoning-effort']);
+				expect(get.stdout).toBe('reasoning-effort=');
+				await isolatedFixture.rm();
+			});
+
+			test('must be none, low, medium, high, or xhigh', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'reasoning-effort=turbo'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be one of: none, low, medium, high, xhigh/i);
+			});
+
+			test('can be set to high', async () => {
+				await aicommits(['config', 'set', 'reasoning-effort=high']);
+
+				const get = await aicommits(['config', 'get', 'reasoning-effort']);
+				expect(get.stdout).toBe('reasoning-effort=high');
+			});
+		});
+
+		await describe('api-mode', ({ test }) => {
+			test('defaults to responses', async () => {
+				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
+				const get = await isolatedAicommits(['config', 'get', 'api-mode']);
+				expect(get.stdout).toBe('api-mode=responses');
+				await isolatedFixture.rm();
+			});
+
+			test('must be responses or chat', async () => {
+				const { stderr } = await aicommits(['config', 'set', 'api-mode=legacy'], {
+					reject: false,
+				});
+
+				expect(stderr).toMatch(/must be one of: responses, chat/i);
+			});
+
+			test('can be set to chat', async () => {
+				await aicommits(['config', 'set', 'api-mode=chat']);
+
+				const get = await aicommits(['config', 'get', 'api-mode']);
+				expect(get.stdout).toBe('api-mode=chat');
 			});
 		});
 

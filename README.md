@@ -63,8 +63,6 @@ For example, you can stage all changes in tracked files with as you commit:
 aicommits --all # or -a
 ```
 
-> 👉 **Tip:** Use the `aic` alias if `aicommits` is too long for you.
-
 #### Generate multiple recommendations
 
 Sometimes the recommended commit message isn't the best so you want it to generate a few to pick from. You can generate multiple commit messages at once by passing in the `--generate <i>` flag, where 'i' is the number of generated messages:
@@ -207,13 +205,13 @@ aicommits config set api-key=<your-api-key> generate=3 locale=en
 
 Required
 
-API key for your chat completions provider.
+API key for your configured API provider.
 
 #### base-url
 
 Required
 
-Base URL used for chat completions requests.
+Base URL used for API requests.
 
 ```sh
 aicommits config set base-url=https://api.openai.com/v1
@@ -271,7 +269,20 @@ aicommits config set proxy=
 
 Default: `gpt-3.5-turbo`
 
-The Chat Completions (`/v1/chat/completions`) model to use.
+The model to use for generation.
+
+#### api-mode
+
+Default: `responses`
+
+Controls which API primitive aicommits uses.
+
+- `responses`: default and recommended for new setups
+- `chat`: legacy compatibility mode
+
+```sh
+aicommits config set api-mode=chat
+```
 
 
 #### timeout
@@ -368,7 +379,7 @@ aicommits config set detail-column-guide=88
 Default: `false`
 
 By default, aicommits shows normal analyzing progress.  
-If the model emits reasoning tokens, it switches to elapsed thinking time (for example `Thinking for 1m 12s`).
+If the API emits reasoning content, it switches to elapsed thinking time (for example `The AI (gpt-5.4) is thinking for 1m 12s`).
 Enable this option to print full streamed model reasoning (debug mode):
 
 ```sh
@@ -379,6 +390,27 @@ Or enable for a single run:
 
 ```sh
 aicommits --show-reasoning
+```
+
+#### reasoning-effort
+
+Default: unset
+
+Controls the model reasoning effort requested by aicommits.
+
+- `none`, `low`, `medium`, `high`, `xhigh`: request an explicit reasoning level
+
+This is the supported way to configure reasoning effort.  
+aicommits maps it to `reasoning.effort` for Responses API requests and `reasoning_effort` for Chat requests.
+
+```sh
+aicommits config set reasoning-effort=low
+```
+
+Or for a single run:
+
+```sh
+aicommits --reasoning-effort high
 ```
 
 #### instructions
@@ -426,10 +458,11 @@ aicommits config set conventional-scope=true
 
 Default: empty
 
-Raw JSON object merged into the Chat Completions request body.
+Raw JSON object merged into the selected API request body.
 
-Use this for provider-specific fields (for example, disabling reasoning/thinking when supported).  
-Internal fields `model`, `messages`, and `stream` are controlled by aicommits and cannot be overridden.
+Use this for provider-specific fields that do not already have a dedicated aicommits option.  
+For reasoning effort, prefer `reasoning-effort` instead of passing `reasoning` or `reasoning_effort` manually.  
+Internal fields `model`, `messages`, `instructions`, `input`, and `stream` are controlled by aicommits and cannot be overridden.
 
 ```sh
 aicommits config set request-options='{"thinking":{"type":"disabled"}}'
@@ -437,7 +470,7 @@ aicommits config set request-options='{"thinking":{"type":"disabled"}}'
 
 ## How it works
 
-This CLI tool runs `git diff` to grab your latest code changes, sends them to your configured chat completions API, then returns the generated commit message.
+This CLI tool runs `git diff` to grab your latest code changes, sends them to your configured API provider using the Responses API by default, then returns the generated commit message. You can switch back to Chat Completions with `api-mode=chat`.
 
 Video coming soon where I rebuild it from scratch to show you how to easily build your own CLI tools powered by AI.
 

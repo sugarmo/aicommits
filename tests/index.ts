@@ -8,6 +8,8 @@ describe('aicommits', ({ runTestSuite }) => {
 	runTestSuite(import('./specs/diff-compaction.js'));
 	runTestSuite(import('./specs/conventional-scope.js'));
 	runTestSuite(import('./specs/detail-column-guide.js'));
+	runTestSuite(import('./specs/reasoning-content.js'));
+	runTestSuite(import('./specs/reasoning-effort.js'));
 	runTestSuite(import('./specs/git.js'));
 	runTestSuite(import('./specs/git-hook.js'));
 	runTestSuite(import('./specs/hook-compat.js'));

@@ -67,7 +67,9 @@ export default () => (async () => {
 		conventionalFormat: config['conventional-format'],
 		conventionalTypes: config['conventional-types'],
 		conventionalScope: config['conventional-scope'],
+		reasoningEffort: config['reasoning-effort'],
 		requestOptionsJson: config['request-options'],
+		apiMode: config['api-mode'],
 		contextWindowTokens: config['context-window'],
 		changedFiles: staged.files,
 	};

@@ -7,15 +7,15 @@ Use [nvm](https://nvm.sh) to use the appropriate Node.js version from `.nvmrc`:
 nvm i
 ```
 
-Install the dependencies using pnpm:
+Install the dependencies using npm:
 ```sh
-pnpm i
+npm install
 ```
 
 ## Building the project
 Run the `build` script:
 ```sh
-pnpm build
+npm run build
 ```
 
 The package is bundled using [pkgroll](https://github.com/privatenumber/pkgroll) (Rollup). It infers the entry-points from `package.json` so there are no build configurations.
@@ -24,7 +24,7 @@ The package is bundled using [pkgroll](https://github.com/privatenumber/pkgroll)
 ### Development (watch) mode
 During development, you can use the watch flag (`--watch, -w`) to automatically rebuild the package on file changes:
 ```sh
-pnpm build -w
+npm run build -- --watch
 ```
 
 ## Running the package locally
@@ -45,13 +45,13 @@ node ./dist/cli.mjs
 Testing requires passing in `OPENAI_KEY` as an environment variable:
 
 ```sh
-OPENAI_KEY=<your OPENAI key> pnpm test
+OPENAI_KEY=<your OPENAI key> npm test
 ```
 
 
 You can still run tests that don't require `OPENAI_KEY` but will not test the main functionality:
 ```
-pnpm test
+npm test
 ```
 
 
@@ -61,7 +61,7 @@ Let's say you made some changes in a fork/branch and you want to test it in a pr
 
 Publish your current branch to a `npm/*` branch on your GitHub repository:
 ```sh
-$ pnpm dlx git-publish
+$ npm exec -- git-publish
 
 ✔ Successfully published branch! Install with command:
   → npm i 'Nutlope/aicommits#npm/develop'
@@ -71,5 +71,5 @@ $ pnpm dlx git-publish
 
 Now, you can run the branch in your project:
 ```sh
-$ pnpm dlx 'Nutlope/aicommits#npm/develop' # same as running `npx aicommits`
+$ npx 'Nutlope/aicommits#npm/develop'
 ```

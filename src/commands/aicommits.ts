@@ -36,7 +36,7 @@ const createThinkingTicker = (spinner: AnimatedStatusSpinner, model: string) => 
 	const startedAt = Date.now();
 	const intervalMs = 1000;
 
-	const render = () => spinner.update(`Thinking for ${formatThinkingDuration(Date.now() - startedAt)} (${model})`);
+	const render = () => spinner.update(`The AI (${model}) is thinking for ${formatThinkingDuration(Date.now() - startedAt)}`);
 	render();
 	const intervalId = setInterval(render, intervalMs);
 
@@ -50,6 +50,8 @@ export default async (
 	commitType: string | undefined,
 	includeDetails: boolean | undefined,
 	showReasoning: boolean | undefined,
+	reasoningEffort: string | undefined,
+	apiMode: string | undefined,
 	detailsStyle: string | undefined,
 	customInstructions: string | undefined,
 	conventionalFormat: string | undefined,
@@ -85,6 +87,8 @@ export default async (
 		type: commitType?.toString(),
 		details: includeDetails === true ? 'true' : undefined,
 		'show-reasoning': showReasoning === true ? 'true' : undefined,
+		'reasoning-effort': reasoningEffort,
+		'api-mode': apiMode,
 		'details-style': detailsStyle,
 		instructions: customInstructions,
 		'conventional-format': conventionalFormat,
@@ -101,7 +105,9 @@ export default async (
 		conventionalFormat: config['conventional-format'],
 		conventionalTypes: config['conventional-types'],
 		conventionalScope: config['conventional-scope'],
+		reasoningEffort: config['reasoning-effort'],
 		requestOptionsJson: config['request-options'],
+		apiMode: config['api-mode'],
 		contextWindowTokens: config['context-window'],
 		changedFiles: changes.files,
 	};
@@ -132,12 +138,12 @@ export default async (
 		}
 
 		if (spinnerOpen) {
-			s.stop(`Streaming reasoning from ${config.model}`);
+			s.stop(`The AI (${config.model}) is thinking`);
 			spinnerOpen = false;
 		}
 
 		if (!reasoningStarted) {
-			process.stdout.write(`${dim(`\nReasoning stream (${config.model})`)}\n`);
+			process.stdout.write(`${dim(`\nThe AI (${config.model}) is thinking`)}\n`);
 			reasoningStarted = true;
 		}
 

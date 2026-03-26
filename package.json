@@ -18,20 +18,19 @@
 		"dist"
 	],
 	"bin": {
-		"aicommits": "./dist/cli.mjs",
-		"aic": "./dist/cli.mjs"
+		"aicommits": "./dist/cli.mjs"
 	},
 	"scripts": {
 		"prepare": "simple-git-hooks",
-		"build": "pnpm lint && pkgroll --minify",
+		"build": "npm run lint && pkgroll --minify",
 		"lint": "eslint --cache .",
 		"type-check": "tsc",
 		"test": "tsx tests",
-		"prepack": "pnpm build && clean-pkg-json"
+		"prepack": "npm run build && clean-pkg-json"
 	},
 	"simple-git-hooks": {
-		"pre-commit": "pnpm lint-staged",
-		"pre-push": "pnpm build"
+		"pre-commit": "npm exec -- lint-staged",
+		"pre-push": "npm run build"
 	},
 	"lint-staged": {
 		"*.ts": "eslint --cache"
@@ -76,10 +75,5 @@
 			}
 		]
 	},
-	"pnpm": {
-		"patchedDependencies": {
-			"@clack/prompts@0.6.1": "patches/@clack__prompts@0.6.1.patch"
-		}
-	},
-	"packageManager": "pnpm@10.29.2"
+	"packageManager": "npm@11.11.1"
 }

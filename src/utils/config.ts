@@ -5,8 +5,13 @@ import type { TiktokenModel } from '@dqbd/tiktoken';
 import { KnownError } from './error.js';
 
 const commitTypes = ['', 'conventional'] as const;
+const apiModes = ['responses', 'chat'] as const;
+const reasoningEfforts = ['none', 'low', 'medium', 'high', 'xhigh'] as const;
 
 export type CommitType = typeof commitTypes[number];
+export type ApiMode = typeof apiModes[number];
+export type ReasoningEffort = typeof reasoningEfforts[number];
+export type ConfiguredReasoningEffort = ReasoningEffort | '';
 
 const { hasOwnProperty } = Object.prototype;
 export const hasOwn = (object: unknown, key: PropertyKey) => hasOwnProperty.call(object, key);
@@ -328,6 +333,36 @@ const configParsers = {
 	},
 	'show-reasoning'(showReasoning?: unknown) {
 		return parseBoolean('show-reasoning', showReasoning, false);
+	},
+	'reasoning-effort'(reasoningEffort?: unknown) {
+		if (reasoningEffort === undefined || reasoningEffort === null || reasoningEffort === '') {
+			return '';
+		}
+
+		if (typeof reasoningEffort !== 'string') {
+			throw new KnownError('Invalid config property reasoning-effort: Must be one of: none, low, medium, high, xhigh');
+		}
+
+		const normalized = reasoningEffort.trim().toLowerCase();
+		parseAssert(
+			'reasoning-effort',
+			reasoningEfforts.includes(normalized as ReasoningEffort),
+			'Must be one of: none, low, medium, high, xhigh',
+		);
+		return normalized as ConfiguredReasoningEffort;
+	},
+	'api-mode'(apiMode?: unknown) {
+		if (apiMode === undefined || apiMode === null || apiMode === '') {
+			return 'responses';
+		}
+
+		if (typeof apiMode !== 'string') {
+			throw new KnownError('Invalid config property api-mode: Must be "responses" or "chat"');
+		}
+
+		const normalized = apiMode.trim().toLowerCase();
+		parseAssert('api-mode', apiModes.includes(normalized as ApiMode), 'Must be one of: responses, chat');
+		return normalized as ApiMode;
 	},
 	'details-style'(detailsStyle?: unknown) {
 		if (detailsStyle === undefined || detailsStyle === null || detailsStyle === '') {
