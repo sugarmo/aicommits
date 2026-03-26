@@ -35,7 +35,36 @@ jobs:
       run: npm install --global npm@11.11.1
 
     - name: Install dependencies
-      run: npm install
+      run: npm install --loglevel verbose
+
+    - name: Print npm debug log (Linux)
+      if: failure() && runner.os == 'Linux'
+      run: |
+        latest_log="$(ls -t /home/runner/.npm/_logs/*-debug-0.log 2>/dev/null | head -n 1)"
+        if [ -n "$latest_log" ]; then
+          cat "$latest_log"
+        else
+          echo "No npm debug log found."
+        fi
+
+    - name: Print npm debug log (Windows)
+      if: failure() && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $paths = @(
+          "$env:LOCALAPPDATA\npm-cache\_logs\*-debug-0.log",
+          "C:\npm\cache\_logs\*-debug-0.log"
+        )
+        $latestLog = Get-ChildItem -Path $paths -ErrorAction SilentlyContinue |
+          Sort-Object LastWriteTime -Descending |
+          Select-Object -First 1
+
+        if ($null -ne $latestLog) {
+          Get-Content -Path $latestLog.FullName -Raw
+        }
+        else {
+          Write-Host 'No npm debug log found.'
+        }
 
     - name: Type check
       run: npm run type-check
