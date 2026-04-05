@@ -132,6 +132,14 @@ cli(
 		ignoreArgv: type => type === 'unknown-flag' || type === 'argument',
 	},
 	(argv) => {
+		if (argv.flags.type !== undefined) {
+			throw new KnownError(getDeprecatedFlagError('--type'));
+		}
+
+		if (argv.flags.details !== undefined) {
+			throw new KnownError(getDeprecatedFlagError('--details'));
+		}
+
 		for (const { flag, matches } of deprecatedFlags) {
 			if (rawArgv.some(argument => matches.some(match => argument === match || argument.startsWith(`${match}=`)))) {
 				throw new KnownError(getDeprecatedFlagError(flag));
