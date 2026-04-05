@@ -8,4 +8,7 @@ script = ""
 [[actions]]
 name = "Run"
 icon = "run"
-command = "./node_modules/.bin/pkgroll --minify"
+command = '''
+npm run build
+npm link
+'''
