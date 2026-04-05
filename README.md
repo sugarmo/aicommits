@@ -80,49 +80,33 @@ If your environment does not provide an interactive TTY, skip prompts explicitly
 aicommits --confirm # or -y / --yes
 ```
 
-#### Generate title + optional details
+#### Guide output with Markdown
 
-Enable `details` when you want a body only when the title is not clear enough on its own:
+Commit message style is now controlled by a Markdown file instead of individual formatting flags.
 
-```sh
-aicommits --details
-```
-
-If you prefer a bullet-list body style:
+By default, aicommits reads `~/.aicommits/message.md`. The file is created automatically on first use.
 
 ```sh
-aicommits --details --details-style list
+aicommits
 ```
 
-If you prefer markdown-formatted detail body:
+To use a different Markdown file for one run:
 
 ```sh
-aicommits --details --details-style markdown
+aicommits --message-file release-message.md
 ```
 
-#### Default style
+The default file includes editable instructions for language, title format, body rules, and style. If you were previously using settings like `type`, `details`, `instructions`, or `conventional-*`, upgrade once and those values will be migrated into `message.md` automatically.
 
-The generator uses a GitHub Copilot-like style by default and prefers commit titles with a concrete file/class/module anchor so commit lists are easier to scan.
+#### Post-process the AI response
 
-You can still fine-tune output using custom instructions:
+You can run an executable after the model responds and before the message is shown or committed.
 
 ```sh
-aicommits --details --instructions "Use shorter body sentences and prioritize class names in the title"
+aicommits --post-response-script rewrite-message.sh
 ```
 
-#### Customize conventional format
-
-You can combine conventional commits with custom output format and type mapping:
-
-```sh
-aicommits --type conventional --conventional-format "<type>(<scope>): <subject>" --conventional-types '{"feature":"Introduce a feature","bugfix":"Fix defects"}'
-```
-
-By default, conventional mode omits scope and uses `type: subject`. You can enable scope preference (for example `refactor(RecentScrollshotController): ...`) when there is a clear dominant file/class/module:
-
-```sh
-aicommits --conventional-scope true
-```
+The script receives the raw AI message on stdin and must write the final message to stdout.
 
 ### Git hook
 
@@ -197,7 +181,7 @@ aicommits config set api-key=<your-api-key>
 You can also set multiple configuration options at once by separating them with spaces, like
 
 ```sh
-aicommits config set api-key=<your-api-key> generate=3 locale=en
+aicommits config set api-key=<your-api-key> generate=3
 ```
 
 ### Options
@@ -239,13 +223,6 @@ profile = "openai"
 model = "gpt-5.2-codex"
 base-url = "https://api.example.com/v1"
 ```
-
-#### locale
-Default: `en`
-
-The locale to use for the generated commit messages. Consult the list of codes in: https://wikipedia.org/wiki/List_of_ISO_639-1_codes.
-
-Common aliases are normalized automatically (for example `cn` -> `zh-CN`).
 
 #### generate
 
@@ -319,59 +296,24 @@ Use `0` to switch back to auto mode:
 aicommits config set context-window=0
 ```
 
-#### title-length-guide
-Guidance target for commit title length.
+#### message-path
 
-Default: `50`
+Default: `message.md`
+
+Relative paths resolve from `~/.aicommits/`. The referenced Markdown file controls how commit messages should be written.
 
 ```sh
-aicommits config set title-length-guide=100
+aicommits config set message-path=release-message.md
 ```
 
-`max-length` is kept as a compatibility alias.
+#### post-response-script
 
-#### type
+Default: empty
 
-Default: plain format
-
-Set commit type formatting:
+Relative paths resolve from `~/.aicommits/`. The executable receives the AI response on stdin and must write the final commit message to stdout.
 
 ```sh
-aicommits config set type=conventional
-```
-
-#### details
-
-Default: `false`
-
-Set this to `true` to allow optional body details. If the title already explains the change clearly, it can still return title only:
-
-```sh
-aicommits config set details=true
-```
-
-#### details-style
-
-Default: `paragraph`
-
-Controls body formatting when `details=true`.
-
-Allowed values: `paragraph`, `list`, `markdown`
-
-```sh
-aicommits config set details-style=list
-aicommits config set details-style=markdown
-```
-
-#### detail-column-guide
-
-Default: `72`
-
-Guidance target for where detail/body lines should wrap.
-Applies to `paragraph` and `list` styles. `markdown` style keeps original line breaks.
-
-```sh
-aicommits config set detail-column-guide=88
+aicommits config set post-response-script=rewrite-message.sh
 ```
 
 #### show-reasoning
@@ -411,47 +353,6 @@ Or for a single run:
 
 ```sh
 aicommits --reasoning-effort high
-```
-
-#### instructions
-
-Default: empty
-
-Additional custom prompt instructions:
-
-```sh
-aicommits config set instructions="Use short and direct wording"
-```
-
-#### conventional-format
-
-Default: `<type>[optional (<scope>)]: <commit message>`
-
-Customize the conventional output template:
-
-```sh
-aicommits config set conventional-format="<type>(<scope>): <subject>"
-```
-
-#### conventional-types
-
-Default: built-in conventional type map
-
-Customize type descriptions with JSON:
-
-```sh
-aicommits config set conventional-types='{"feature":"Introduce a feature","bugfix":"Fix defects"}'
-```
-
-#### conventional-scope
-
-Default: `false`
-
-When enabled, conventional commits strongly prefer `type(scope): subject` using the primary file/class/module as scope.  
-When disabled (default), conventional commits prefer `type: subject`.
-
-```sh
-aicommits config set conventional-scope=true
 ```
 
 #### request-options

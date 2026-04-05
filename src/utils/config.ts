@@ -3,12 +3,19 @@ import path from 'path';
 import os from 'os';
 import type { TiktokenModel } from '@dqbd/tiktoken';
 import { KnownError } from './error.js';
+import {
+	type MessageConfigRuntime,
+	getDeprecatedFlagError,
+	loadMessageConfig,
+} from './config/message-files.js';
+import {
+	getDeprecatedConfigError,
+	migrateLegacyMessageConfig,
+} from './config/legacy-message.js';
 
-const commitTypes = ['', 'conventional'] as const;
 const apiModes = ['responses', 'chat'] as const;
 const reasoningEfforts = ['none', 'low', 'medium', 'high', 'xhigh'] as const;
 
-export type CommitType = typeof commitTypes[number];
 export type ApiMode = typeof apiModes[number];
 export type ReasoningEffort = typeof reasoningEfforts[number];
 export type ConfiguredReasoningEffort = ReasoningEffort | '';
@@ -39,21 +46,6 @@ const asRawConfigValue = (value: unknown) => ((
 )
 	? value
 	: undefined);
-
-const localeAliases: Record<string, string> = {
-	cn: 'zh-CN',
-	'zh-cn': 'zh-CN',
-	'zh-hans': 'zh-CN',
-	zh: 'zh-CN',
-	'zh-tw': 'zh-TW',
-	'zh-hant': 'zh-TW',
-};
-
-const normalizeLocale = (value: string) => {
-	const normalized = value.trim().replace(/_/g, '-');
-	const alias = localeAliases[normalized.toLowerCase()];
-	return alias ?? normalized;
-};
 
 const parseBoolean = (
 	name: string,
@@ -91,33 +83,6 @@ const parseBoolean = (
 	}
 
 	throw new KnownError(`Invalid config property ${name}: Must be a boolean (true/false)`);
-};
-
-const parseConventionalTypes = (rawConventionalTypes: string) => {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(rawConventionalTypes);
-	} catch {
-		throw new KnownError('Invalid config property conventional-types: Must be valid JSON');
-	}
-
-	parseAssert(
-		'conventional-types',
-		typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed),
-		'Must be a JSON object with "type":"description" pairs',
-	);
-
-	const normalizedEntries = Object.entries(parsed as Record<string, unknown>)
-		.map(([key, value]) => [key.trim(), String(value).trim()] as const)
-		.filter(([key, value]) => key.length > 0 && value.length > 0);
-
-	parseAssert(
-		'conventional-types',
-		normalizedEntries.length > 0,
-		'Must contain at least one type',
-	);
-
-	return JSON.stringify(Object.fromEntries(normalizedEntries));
 };
 
 const parseRequestOptions = (rawRequestOptions: string) => {
@@ -159,6 +124,22 @@ const parseContextWindowTokens = (contextWindow: string | number) => {
 		multiplier = 1024 * 1024;
 	}
 	return base * multiplier;
+};
+
+const normalizeStoredPath = (
+	value: unknown,
+	defaultValue = '',
+) => {
+	if (value === undefined || value === null) {
+		return defaultValue;
+	}
+
+	if (typeof value !== 'string') {
+		throw new KnownError('Path values must be strings');
+	}
+
+	const normalized = value.trim();
+	return normalized || defaultValue;
 };
 
 const configParsers = {
@@ -209,47 +190,17 @@ const configParsers = {
 
 		return profile.trim();
 	},
-	locale(locale?: unknown) {
-		if (!locale) {
-			return 'en';
-		}
-
-		if (typeof locale !== 'string') {
-			throw new KnownError('Invalid config property locale: Must be a string');
-		}
-
-		const normalized = normalizeLocale(locale);
-		parseAssert('locale', normalized.length > 0, 'Cannot be empty');
-		parseAssert(
-			'locale',
-			/^[a-z]{2,3}(?:-[a-z\d]{2,8})*$/i.test(normalized),
-			'Must be a valid locale (letters and dashes/underscores). You can consult the list of codes in: https://wikipedia.org/wiki/List_of_ISO_639-1_codes',
-		);
-		return normalized;
-	},
 	generate(count?: unknown) {
 		if (!count) {
 			return 1;
 		}
 
 		parseAssert('generate', typeof count === 'string' || typeof count === 'number', 'Must be an integer');
-
 		const parsed = Number(count);
 		parseAssert('generate', Number.isInteger(parsed), 'Must be an integer');
 		parseAssert('generate', parsed > 0, 'Must be greater than 0');
 		parseAssert('generate', parsed <= 5, 'Must be less or equal to 5');
-
 		return parsed;
-	},
-	type(type?: unknown) {
-		if (!type) {
-			return '';
-		}
-
-		parseAssert('type', typeof type === 'string', 'Must be a string');
-		parseAssert('type', commitTypes.includes(type as CommitType), 'Invalid commit type');
-
-		return type as CommitType;
 	},
 	proxy(url?: unknown) {
 		if (url === undefined || url === null || url === '') {
@@ -260,7 +211,6 @@ const configParsers = {
 			throw new KnownError('Invalid config property proxy: Must be a valid URL');
 		}
 		parseAssert('proxy', /^https?:\/\//.test(url), 'Must be a valid URL');
-
 		return url;
 	},
 	model(model?: unknown) {
@@ -280,11 +230,9 @@ const configParsers = {
 		}
 
 		parseAssert('timeout', typeof timeout === 'string' || typeof timeout === 'number', 'Must be an integer');
-
 		const parsed = Number(timeout);
 		parseAssert('timeout', Number.isInteger(parsed), 'Must be an integer');
 		parseAssert('timeout', parsed >= 500, 'Must be greater than 500ms');
-
 		return parsed;
 	},
 	'context-window'(contextWindow?: unknown) {
@@ -299,37 +247,7 @@ const configParsers = {
 		const parsed = parseContextWindowTokens(contextWindow);
 		parseAssert('context-window', Number.isInteger(parsed), 'Must be an integer');
 		parseAssert('context-window', parsed === 0 || parsed >= 1024, 'Must be 0 (auto) or greater than or equal to 1024 tokens');
-
 		return parsed;
-	},
-	'title-length-guide'(titleLengthGuide?: unknown) {
-		if (!titleLengthGuide) {
-			return 50;
-		}
-
-		parseAssert('title-length-guide', typeof titleLengthGuide === 'string' || typeof titleLengthGuide === 'number', 'Must be an integer');
-
-		const parsed = Number(titleLengthGuide);
-		parseAssert('title-length-guide', Number.isInteger(parsed), 'Must be an integer');
-		parseAssert('title-length-guide', parsed >= 20, 'Must be greater than 20 characters');
-
-		return parsed;
-	},
-	'detail-column-guide'(detailColumnGuide?: unknown) {
-		if (!detailColumnGuide) {
-			return 72;
-		}
-
-		parseAssert('detail-column-guide', typeof detailColumnGuide === 'string' || typeof detailColumnGuide === 'number', 'Must be an integer');
-
-		const parsed = Number(detailColumnGuide);
-		parseAssert('detail-column-guide', Number.isInteger(parsed), 'Must be an integer');
-		parseAssert('detail-column-guide', parsed >= 20, 'Must be greater than 20 characters');
-
-		return parsed;
-	},
-	details(details?: unknown) {
-		return parseBoolean('details', details, false);
 	},
 	'show-reasoning'(showReasoning?: unknown) {
 		return parseBoolean('show-reasoning', showReasoning, false);
@@ -364,51 +282,6 @@ const configParsers = {
 		parseAssert('api-mode', apiModes.includes(normalized as ApiMode), 'Must be one of: responses, chat');
 		return normalized as ApiMode;
 	},
-	'details-style'(detailsStyle?: unknown) {
-		if (detailsStyle === undefined || detailsStyle === null || detailsStyle === '') {
-			return 'paragraph';
-		}
-
-		if (typeof detailsStyle !== 'string') {
-			throw new KnownError('Invalid config property details-style: Must be a string');
-		}
-		const normalized = detailsStyle.trim().toLowerCase();
-		parseAssert('details-style', ['paragraph', 'list', 'markdown'].includes(normalized), 'Must be one of: paragraph, list, markdown');
-		return normalized as 'paragraph' | 'list' | 'markdown';
-	},
-	instructions(instructions?: unknown) {
-		if (instructions === undefined || instructions === null) {
-			return '';
-		}
-
-		if (typeof instructions !== 'string') {
-			throw new KnownError('Invalid config property instructions: Must be a string');
-		}
-		return instructions.trim();
-	},
-	'conventional-format'(conventionalFormat?: unknown) {
-		if (conventionalFormat === undefined || conventionalFormat === null) {
-			return '';
-		}
-
-		if (typeof conventionalFormat !== 'string') {
-			throw new KnownError('Invalid config property conventional-format: Must be a string');
-		}
-		return conventionalFormat.trim();
-	},
-	'conventional-types'(conventionalTypes?: unknown) {
-		if (!conventionalTypes) {
-			return '';
-		}
-
-		if (typeof conventionalTypes !== 'string') {
-			throw new KnownError('Invalid config property conventional-types: Must be valid JSON');
-		}
-		return parseConventionalTypes(conventionalTypes);
-	},
-	'conventional-scope'(conventionalScope?: unknown) {
-		return parseBoolean('conventional-scope', conventionalScope, false);
-	},
 	'request-options'(requestOptions?: unknown) {
 		if (requestOptions === undefined || requestOptions === null || requestOptions === '') {
 			return '';
@@ -420,39 +293,47 @@ const configParsers = {
 
 		return parseRequestOptions(requestOptions);
 	},
+	'message-path'(messagePath?: unknown) {
+		try {
+			return normalizeStoredPath(messagePath, 'message.md');
+		} catch {
+			throw new KnownError('Invalid config property message-path: Must be a string');
+		}
+	},
+	'post-response-script'(scriptPath?: unknown) {
+		try {
+			return normalizeStoredPath(scriptPath, '');
+		} catch {
+			throw new KnownError('Invalid config property post-response-script: Must be a string');
+		}
+	},
 } as const;
 
 type ConfigKeys = keyof typeof configParsers;
 type RawConfigValue = string | number | boolean;
 type CliConfig = Partial<Record<ConfigKeys, RawConfigValue>>;
-
 type RawConfig = Record<string, unknown>;
+type ReadConfigFileResult = {
+	config: RawConfig;
+	sourceContent?: string;
+	sourcePath?: string;
+};
 
 export type ValidConfig = {
 	[Key in ConfigKeys]: ReturnType<typeof configParsers[Key]>;
-};
+} & {
+	configDirectoryPath: string;
+} & MessageConfigRuntime;
 
-const configKeyAliases = {
-	'max-length': 'title-length-guide',
-} as const;
-
-export const resolveConfigKey = (key: string): ConfigKeys | undefined => {
-	const normalized = key.trim();
-	if (hasOwn(configParsers, normalized)) {
-		return normalized as ConfigKeys;
-	}
-
-	return configKeyAliases[normalized as keyof typeof configKeyAliases];
-};
+const configKeyAliases = {} as const;
 
 const legacyConfigAliases: Partial<Record<ConfigKeys, string[]>> = {
 	'api-key': ['openai-key', 'OPENAI_KEY', 'OPENAI_API_KEY'],
 	'base-url': ['openai-base-url', 'OPENAI_BASE_URL'],
 	model: ['OPENAI_MODEL'],
-	'title-length-guide': ['max-length'],
 };
 
-const configDirectoryPath = path.join(os.homedir(), '.aicommits');
+export const configDirectoryPath = path.join(os.homedir(), '.aicommits');
 const configPath = path.join(configDirectoryPath, 'config.toml');
 const legacyConfigPaths = [
 	path.join(os.homedir(), 'aicommits.toml'),
@@ -655,16 +536,54 @@ const stringifyTomlConfig = (config: RawConfig) => {
 		sectionBlocks.pop();
 	}
 
-	const parts = [
+	return [
 		...topLevelLines,
 		...(topLevelLines.length > 0 && sectionBlocks.length > 0 ? [''] : []),
 		...sectionBlocks,
-	];
-
-	return parts.join('\n');
+	].join('\n');
 };
 
-const readTomlFileIfExists = async (targetPath: string): Promise<RawConfig | undefined> => {
+const writeConfigFile = async (config: RawConfig) => {
+	await fs.mkdir(configDirectoryPath, { recursive: true });
+	const serialized = stringifyTomlConfig(config);
+	await fs.writeFile(configPath, `${serialized}\n`, 'utf8');
+};
+
+const writeFileIfMissing = async (
+	targetPath: string,
+	content: string,
+) => {
+	try {
+		const stats = await fs.lstat(targetPath);
+		if (stats.isFile()) {
+			return;
+		}
+
+		throw new KnownError(`Backup path must point to a file: ${targetPath}`);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+			throw error;
+		}
+	}
+
+	await fs.mkdir(path.dirname(targetPath), { recursive: true });
+	await fs.writeFile(targetPath, content, 'utf8');
+};
+
+const backupConfigFileIfNeeded = async (
+	sourcePath: string | undefined,
+	sourceContent: string | undefined,
+) => {
+	if (!sourcePath || sourceContent === undefined) {
+		return;
+	}
+
+	await writeFileIfMissing(`${sourcePath}.bak`, sourceContent);
+};
+
+const readTomlFileIfExists = async (
+	targetPath: string,
+): Promise<{ config: RawConfig; content: string; path: string } | undefined> => {
 	try {
 		const stats = await fs.lstat(targetPath);
 		if (!stats.isFile()) {
@@ -672,27 +591,40 @@ const readTomlFileIfExists = async (targetPath: string): Promise<RawConfig | und
 		}
 
 		const configString = await fs.readFile(targetPath, 'utf8');
-		return parseTomlConfig(configString);
+		return {
+			config: parseTomlConfig(configString),
+			content: configString,
+			path: targetPath,
+		};
 	} catch {
 		return undefined;
 	}
 };
 
-const readConfigFile = async (): Promise<RawConfig> => {
+const readConfigFile = async (): Promise<ReadConfigFileResult> => {
 	const primaryConfig = await readTomlFileIfExists(configPath);
 	if (primaryConfig) {
-		return primaryConfig;
+		return {
+			config: primaryConfig.config,
+			sourceContent: primaryConfig.content,
+			sourcePath: primaryConfig.path,
+		};
 	}
 
-	// Compatibility fallbacks for older config paths.
 	for (const legacyConfigPath of legacyConfigPaths) {
 		const legacyConfig = await readTomlFileIfExists(legacyConfigPath);
 		if (legacyConfig) {
-			return legacyConfig;
+			return {
+				config: legacyConfig.config,
+				sourceContent: legacyConfig.content,
+				sourcePath: legacyConfig.path,
+			};
 		}
 	}
 
-	return Object.create(null);
+	return {
+		config: Object.create(null),
+	};
 };
 
 const readLegacyConfigValue = (
@@ -754,16 +686,38 @@ const readProfileConfigValue = (
 	return asRawConfigValue(selectedProfile[key]);
 };
 
+export {
+	getDeprecatedConfigError,
+	getDeprecatedFlagError,
+};
+
+export const resolveConfigKey = (key: string): ConfigKeys | undefined => {
+	const normalized = key.trim();
+	if (hasOwn(configParsers, normalized)) {
+		return normalized as ConfigKeys;
+	}
+
+	return configKeyAliases[normalized as keyof typeof configKeyAliases];
+};
+
 export const getConfig = async (
 	cliConfig?: CliConfig,
 	suppressErrors?: boolean,
 ): Promise<ValidConfig> => {
-	const config = await readConfigFile();
+	const { config, sourceContent, sourcePath } = await readConfigFile();
+	normalizeLegacyConfigKeys(config);
+	await migrateLegacyMessageConfig({
+		backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
+		config,
+		configDirectoryPath,
+		normalizeLegacyConfigKeys,
+		writeConfig: writeConfigFile,
+	});
+
 	const parsedConfig: Record<string, unknown> = {};
 	const configuredProfile = (
 		cliConfig?.profile
 		?? asRawConfigValue(config.profile)
-		?? readLegacyConfigValue('profile', config)
 	);
 	let selectedProfile = '';
 	try {
@@ -792,16 +746,41 @@ export const getConfig = async (
 		}
 	}
 
-	return parsedConfig as ValidConfig;
+	const messagePathValue = (parsedConfig['message-path'] as string | undefined) || 'message.md';
+	const postResponseScriptValue = (parsedConfig['post-response-script'] as string | undefined) || '';
+	const messageConfig = await loadMessageConfig({
+		configDirectoryPath,
+		messagePathValue,
+		postResponseScriptValue,
+		suppressErrors,
+	});
+
+	return {
+		...(parsedConfig as Record<string, never>),
+		configDirectoryPath,
+		...messageConfig,
+	} as ValidConfig;
 };
 
 export const setConfigs = async (
 	keyValues: [key: string, value: string][],
 ) => {
-	const config = await readConfigFile();
+	const { config, sourceContent, sourcePath } = await readConfigFile();
 	normalizeLegacyConfigKeys(config);
+	await migrateLegacyMessageConfig({
+		backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
+		config,
+		configDirectoryPath,
+		normalizeLegacyConfigKeys,
+		writeConfig: writeConfigFile,
+	});
 
 	for (const [key, value] of keyValues) {
+		const deprecatedError = getDeprecatedConfigError(key);
+		if (deprecatedError) {
+			throw new KnownError(deprecatedError);
+		}
+
 		const resolvedKey = resolveConfigKey(key);
 		if (!resolvedKey) {
 			throw new KnownError(`Invalid config property: ${key}`);
@@ -816,7 +795,5 @@ export const setConfigs = async (
 		}
 	}
 
-	await fs.mkdir(configDirectoryPath, { recursive: true });
-	const serialized = stringifyTomlConfig(config);
-	await fs.writeFile(configPath, `${serialized}\n`, 'utf8');
+	await writeConfigFile(config);
 };

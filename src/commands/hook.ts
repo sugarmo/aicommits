@@ -11,11 +11,22 @@ const hookName = 'prepare-commit-msg';
 const hookCommandName = 'prepare-commit-msg-hook';
 const hookPathSuffix = `/hooks/${hookName}`;
 
-const hookPath = fileURLToPath(new URL('cli.mjs', import.meta.url));
+const hookEntrypointUrl = new URL(
+	import.meta.url.endsWith('.ts')
+		? '../cli.ts'
+		: '../cli.mjs',
+	import.meta.url,
+);
+const hookPath = fileURLToPath(hookEntrypointUrl);
+const hookLoaderUrl = import.meta.url.endsWith('.ts')
+	? new URL('../../node_modules/tsx/dist/cli.mjs', import.meta.url)
+	: hookEntrypointUrl;
+const hookLoaderPath = fileURLToPath(hookLoaderUrl);
 const hookScript = `
 #!/usr/bin/env node
 process.argv.splice(2, 0, ${JSON.stringify(hookCommandName)});
-import(${JSON.stringify(pathToFileURL(hookPath))})
+${import.meta.url.endsWith('.ts') ? `process.argv.splice(2, 0, ${JSON.stringify(hookPath)});` : ''}
+import(${JSON.stringify(pathToFileURL(hookLoaderPath))})
 `.trim();
 
 export const isCalledFromGitHook = (

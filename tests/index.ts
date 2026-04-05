@@ -6,7 +6,6 @@ describe('aicommits', ({ runTestSuite }) => {
 	runTestSuite(import('./specs/config.js'));
 	runTestSuite(import('./specs/prompt.js'));
 	runTestSuite(import('./specs/diff-compaction.js'));
-	runTestSuite(import('./specs/conventional-scope.js'));
 	runTestSuite(import('./specs/detail-column-guide.js'));
 	runTestSuite(import('./specs/reasoning-content.js'));
 	runTestSuite(import('./specs/reasoning-effort.js'));

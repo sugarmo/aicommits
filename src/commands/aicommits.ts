@@ -14,6 +14,7 @@ import { getConfig } from '../utils/config.js';
 import { generateCommitMessage, type CommitMessageStreamEvent } from '../utils/openai.js';
 import { createAnimatedStatusSpinner, type AnimatedStatusSpinner } from '../utils/animated-status-spinner.js';
 import { KnownError, handleCliError } from '../utils/error.js';
+import { applyPostResponseScript } from '../utils/post-response.js';
 
 const formatThinkingDuration = (elapsedMs: number) => {
 	const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
@@ -47,16 +48,11 @@ export default async (
 	generate: number | undefined,
 	excludeFiles: string[],
 	stageAll: boolean,
-	commitType: string | undefined,
-	includeDetails: boolean | undefined,
 	showReasoning: boolean | undefined,
 	reasoningEffort: string | undefined,
 	apiMode: string | undefined,
-	detailsStyle: string | undefined,
-	customInstructions: string | undefined,
-	conventionalFormat: string | undefined,
-	conventionalTypes: string | undefined,
-	conventionalScope: string | undefined,
+	messageFile: string | undefined,
+	postResponseScript: string | undefined,
 	baseUrl: string | undefined,
 	autoConfirm: boolean | undefined,
 	rawArgv: string[],
@@ -84,27 +80,16 @@ export default async (
 
 	const config = await getConfig({
 		generate: generate?.toString(),
-		type: commitType?.toString(),
-		details: includeDetails === true ? 'true' : undefined,
 		'show-reasoning': showReasoning === true ? 'true' : undefined,
 		'reasoning-effort': reasoningEffort,
 		'api-mode': apiMode,
-		'details-style': detailsStyle,
-		instructions: customInstructions,
-		'conventional-format': conventionalFormat,
-		'conventional-types': conventionalTypes,
-		'conventional-scope': conventionalScope,
+		'message-path': messageFile,
+		'post-response-script': postResponseScript,
 		'base-url': baseUrl,
 	});
 
 	const promptOptions = {
-		includeDetails: config.details,
-		detailsStyle: config['details-style'],
-		detailColumnGuide: config['detail-column-guide'],
-		instructions: config.instructions,
-		conventionalFormat: config['conventional-format'],
-		conventionalTypes: config['conventional-types'],
-		conventionalScope: config['conventional-scope'],
+		messageInstructionsMarkdown: config.messageInstructionsMarkdown,
 		reasoningEffort: config['reasoning-effort'],
 		requestOptionsJson: config['request-options'],
 		apiMode: config['api-mode'],
@@ -122,7 +107,6 @@ export default async (
 	let activeReasoningPhase: CommitMessageStreamEvent['phase'] | undefined;
 	const phaseLabels: Record<CommitMessageStreamEvent['phase'], string> = {
 		message: 'Message Generation',
-		'title-rewrite': 'Title Rewrite',
 	};
 	const handleStreamEvent = (event: CommitMessageStreamEvent) => {
 		if (event.kind !== 'reasoning' || !event.text) {
@@ -160,11 +144,8 @@ export default async (
 		messages = await generateCommitMessage(
 			config['api-key'],
 			config.model,
-			config.locale,
 			changes.diff,
 			config.generate,
-			config['title-length-guide'],
-			config.type,
 			config.timeout,
 			config.proxy,
 			{
@@ -185,6 +166,19 @@ export default async (
 	if (messages.length === 0) {
 		throw new KnownError('No commit messages were generated. Try again.');
 	}
+
+	messages = await Promise.all(messages.map((candidate, index) => applyPostResponseScript(
+		candidate,
+		config.postResponseScriptPath,
+		{
+			candidateCount: messages.length,
+			candidateIndex: index,
+			commitSource: 'cli',
+			configDirectoryPath: config.configDirectoryPath,
+			cwd: process.cwd(),
+			messageFilePath: config.messageFilePath,
+		},
+	)));
 
 	let message: string;
 

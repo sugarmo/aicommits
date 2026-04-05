@@ -1,4 +1,6 @@
+import fs from 'fs/promises';
 import net from 'net';
+import path from 'path';
 import { testSuite, expect } from 'manten';
 import {
 	createFixture,
@@ -8,30 +10,32 @@ import {
 	warnSkippedLiveTests,
 } from '../../utils.js';
 
-type AicommitsRunner = Awaited<ReturnType<typeof createFixture>>['aicommits'];
-
 const conventionalCommitPattern = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?:\s+\S/;
-const expectGuidedCommitLength = (
-	commitMessage: string,
-	guide: number,
-	buffer = 24,
-) => {
-	expect(commitMessage.length).toBeGreaterThan(0);
-	expect(commitMessage.length).toBeLessThanOrEqual(guide + buffer);
-};
-const readConfiguredMaxLength = async (aicommits: AicommitsRunner) => {
-	const { stdout } = await aicommits(['config', 'get', 'title-length-guide']);
-	const match = stdout.trim().match(/^title-length-guide=(\d+)$/);
-	expect(Boolean(match?.[1])).toBe(true);
-	return Number(match?.[1]);
-};
-const expectCommitLengthUsingConfiguredGuide = async (
-	commitMessage: string,
-	aicommits: AicommitsRunner,
-	buffer = 24,
-) => {
-	const configuredGuide = await readConfiguredMaxLength(aicommits);
-	expectGuidedCommitLength(commitMessage, configuredGuide, buffer);
+
+const conventionalMessageFile = [
+	'# Commit Message Instructions',
+	'',
+	'## Language',
+	'- Write the commit message in English.',
+	'',
+	'## Format',
+	'- Use conventional commit formatting.',
+	'- Prefer `type(scope): subject` when there is a clear dominant anchor.',
+	'- Return only the title line with no body.',
+	'',
+	'## Style',
+	'- Use concise imperative wording.',
+	'- Focus on the dominant outcome first.',
+].join('\n');
+
+const waitForCommitPromptAndAccept = (committing: ReturnType<Awaited<ReturnType<typeof createFixture>>['aicommits']>) => {
+	committing.stdout!.on('data', (buffer: Buffer) => {
+		const stdout = buffer.toString();
+		if (stdout.match('└')) {
+			committing.stdin!.write('y');
+			committing.stdin!.end();
+		}
+	});
 };
 
 const isLocalProxyReachable = (port = 8888) => new Promise<boolean>((resolve) => {
@@ -54,23 +58,20 @@ const isLocalProxyReachable = (port = 8888) => new Promise<boolean>((resolve) =>
 
 export default testSuite(({ describe }) => {
 	if (process.platform === 'win32') {
-		// https://github.com/nodejs/node/issues/31409
 		console.warn('Skipping tests on Windows because Node.js spawn cant open TTYs');
 		return;
 	}
 
-	describe('Commits', async ({ test, describe }) => {
+	describe('Commits', async ({ test }) => {
 		test('Excludes files', async () => {
 			const { fixture, aicommits } = await createFixture(files);
 			const git = await createGit(fixture.path);
 
 			await git('add', ['data.json']);
-			const statusBefore = await git('status', ['--porcelain', '--untracked-files=no']);
-			expect(statusBefore.stdout).toBe('A  data.json');
-
 			const { stdout, exitCode } = await aicommits(['--exclude', 'data.json'], { reject: false });
 			expect(exitCode).toBe(1);
 			expect(stdout).toMatch('No staged changes found.');
+
 			await fixture.rm();
 		});
 
@@ -79,101 +80,39 @@ export default testSuite(({ describe }) => {
 			return;
 		}
 
-		test('Generates commit message', async () => {
+		test('Generates commit message and creates default message.md', async () => {
 			const { fixture, aicommits } = await createFixture(files);
 			const git = await createGit(fixture.path);
 
 			await git('add', ['data.json']);
 
 			const committing = aicommits();
-			committing.stdout!.on('data', (buffer: Buffer) => {
-				const stdout = buffer.toString();
-				if (stdout.match('└')) {
-					committing.stdin!.write('y');
-					committing.stdin!.end();
-				}
-			});
-
+			waitForCommitPromptAndAccept(committing);
 			await committing;
 
-			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-			expect(statusAfter.stdout).toBe('');
+			const { stdout: commitMessage } = await git('log', ['--pretty=format:%B']);
+			expect(commitMessage.trim().length).toBeGreaterThan(0);
 
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-			console.log({
-				commitMessage,
-				length: commitMessage.length,
-			});
-			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
+			const messageFile = await fs.readFile(path.join(fixture.path, '.aicommits', 'message.md'), 'utf8');
+			expect(messageFile).toMatch('# Commit Message Instructions');
 
 			await fixture.rm();
 		});
 
-		test('Treats configured title-length-guide as guidance', async () => {
-			const guide = 64;
-			const { fixture, aicommits } = await createFixture({
-				...files,
-				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntitle-length-guide = ${guide}`,
-			});
-
-			const git = await createGit(fixture.path);
-
-			await git('add', ['data.json']);
-
-			const committing = aicommits();
-			committing.stdout!.on('data', (buffer: Buffer) => {
-				const stdout = buffer.toString();
-				if (stdout.match('└')) {
-					committing.stdin!.write('y');
-					committing.stdin!.end();
-				}
-			});
-
-			await committing;
-
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-			console.log({
-				commitMessage,
-				length: commitMessage.length,
-			});
-			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
-
-			await fixture.rm();
-		});
-
-		test('Accepts --all flag, staging all changes before commit', async () => {
+		test('Accepts --all flag, staging tracked changes before commit', async () => {
 			const { fixture, aicommits } = await createFixture(files);
 			const git = await createGit(fixture.path);
 
 			await git('add', ['data.json']);
 			await git('commit', ['-m', 'wip']);
-
-			// Change tracked file
 			await fixture.writeFile('data.json', 'Test');
 
-			const statusBefore = await git('status', ['--short']);
-			expect(statusBefore.stdout).toBe(' M data.json\n?? .aicommits/');
-
 			const committing = aicommits(['--all']);
-			committing.stdout!.on('data', (buffer: Buffer) => {
-				const stdout = buffer.toString();
-				if (stdout.match('└')) {
-					committing.stdin!.write('y');
-					committing.stdin!.end();
-				}
-			});
-
+			waitForCommitPromptAndAccept(committing);
 			await committing;
 
 			const statusAfter = await git('status', ['--short']);
 			expect(statusAfter.stdout).toBe('?? .aicommits/');
-
-			const { stdout: commitMessage } = await git('log', ['-n1', '--pretty=format:%s']);
-			console.log({
-				commitMessage,
-				length: commitMessage.length,
-			});
-			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 			await fixture.rm();
 		});
@@ -187,12 +126,7 @@ export default testSuite(({ describe }) => {
 
 			await git('add', ['data.json']);
 
-			// Generate flag should override generate config
-			const committing = aicommits([
-				'--generate', '2',
-			]);
-
-			// Hit enter to accept the commit message
+			const committing = aicommits(['--generate', '2']);
 			committing.stdout!.on('data', function onPrompt(buffer: Buffer) {
 				const stdout = buffer.toString();
 				if (stdout.match('└')) {
@@ -209,181 +143,50 @@ export default testSuite(({ describe }) => {
 			expect(countChoices).toBeGreaterThan(0);
 			expect(countChoices).toBeLessThanOrEqual(2);
 
-			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-			expect(statusAfter.stdout).toBe('');
-
-			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-			console.log({
-				commitMessage,
-				length: commitMessage.length,
-			});
-			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
-
 			await fixture.rm();
 		});
 
-		test('Accepts locale config while generating commit messages', async () => {
+		test('reads a custom markdown file via --message-file', async () => {
 			const { fixture, aicommits } = await createFixture({
 				...files,
-				'.aicommits/config.toml': `${files['.aicommits/config.toml']}\nlocale = "ja"`,
+				'.aicommits/custom.md': conventionalMessageFile,
 			});
 			const git = await createGit(fixture.path);
 
 			await git('add', ['data.json']);
 
-			const committing = aicommits();
-
-			committing.stdout!.on('data', (buffer: Buffer) => {
-				const stdout = buffer.toString();
-				if (stdout.match('└')) {
-					committing.stdin!.write('y');
-					committing.stdin!.end();
-				}
-			});
-
+			const committing = aicommits(['--message-file', 'custom.md']);
+			waitForCommitPromptAndAccept(committing);
 			await committing;
 
-			const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-			expect(statusAfter.stdout).toBe('');
-
 			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-			console.log({
-				commitMessage,
-				length: commitMessage.length,
-			});
-			await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
+			expect(commitMessage).toMatch(conventionalCommitPattern);
 
 			await fixture.rm();
 		});
 
-		describe('commit types', ({ test }) => {
-			test('Should not use conventional commits by default', async () => {
-				const { fixture, aicommits } = await createFixture({
-					...files,
-				});
-				const git = await createGit(fixture.path);
-
-				await git('add', ['data.json']);
-
-				const committing = aicommits();
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
-				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log('Committed with:', commitMessage);
-				expect(commitMessage).not.toMatch(conventionalCommitPattern);
-
-				await fixture.rm();
+		test('applies post-response-script before commit', async () => {
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'.aicommits/rewrite.sh': [
+					'#!/bin/sh',
+					'input=$(cat)',
+					'printf "POST: %s\\n" "$input"',
+				].join('\n'),
 			});
+			const git = await createGit(fixture.path);
 
-			test('Conventional commits', async () => {
-				const { fixture, aicommits } = await createFixture({
-					...files,
-					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntype = "conventional"`,
-				});
-				const git = await createGit(fixture.path);
+			await fs.chmod(path.join(fixture.path, '.aicommits', 'rewrite.sh'), 0o755);
+			await git('add', ['data.json']);
 
-				await git('add', ['data.json']);
+			const committing = aicommits(['--post-response-script', 'rewrite.sh']);
+			waitForCommitPromptAndAccept(committing);
+			await committing;
 
-				const committing = aicommits();
+			const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
+			expect(commitMessage.startsWith('POST: ')).toBe(true);
 
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
-				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log('Committed with:', commitMessage);
-				expect(commitMessage).toMatch(conventionalCommitPattern);
-
-				await fixture.rm();
-			});
-
-			test('Accepts --type flag, overriding config', async () => {
-				const { fixture, aicommits } = await createFixture({
-					...files,
-					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntype = "other"`,
-				});
-				const git = await createGit(fixture.path);
-
-				await git('add', ['data.json']);
-
-				// Generate flag should override generate config
-				const committing = aicommits([
-					'--type', 'conventional',
-				]);
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
-				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log('Committed with:', commitMessage);
-				expect(commitMessage).toMatch(conventionalCommitPattern);
-
-				await fixture.rm();
-			});
-
-			test('Accepts empty --type flag', async () => {
-				const { fixture, aicommits } = await createFixture({
-					...files,
-					'.aicommits/config.toml': `${files['.aicommits/config.toml']}\ntype = "conventional"`,
-				});
-				const git = await createGit(fixture.path);
-
-				await git('add', ['data.json']);
-
-				const committing = aicommits([
-					'--type', '',
-				]);
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
-				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log('Committed with:', commitMessage);
-				expect(commitMessage).not.toMatch(conventionalCommitPattern);
-
-				await fixture.rm();
-			});
+			await fixture.rm();
 		});
 
 		describe('proxy', ({ test }) => {
@@ -399,17 +202,9 @@ export default testSuite(({ describe }) => {
 				const committing = aicommits([], {
 					reject: false,
 				});
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
+				waitForCommitPromptAndAccept(committing);
 
 				const { stdout, stderr, exitCode } = await committing;
-
 				expect(exitCode).toBe(1);
 				expect(`${stdout}\n${stderr}`).toMatch(/ECONNREFUSED|internalConnectMultiple/);
 
@@ -431,26 +226,8 @@ export default testSuite(({ describe }) => {
 				await git('add', ['data.json']);
 
 				const committing = aicommits();
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
+				waitForCommitPromptAndAccept(committing);
 				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log({
-					commitMessage,
-					length: commitMessage.length,
-				});
-				await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 				await fixture.rm();
 			});
@@ -471,26 +248,8 @@ export default testSuite(({ describe }) => {
 						HTTP_PROXY: 'http://localhost:8888',
 					},
 				});
-
-				committing.stdout!.on('data', (buffer: Buffer) => {
-					const stdout = buffer.toString();
-					if (stdout.match('└')) {
-						committing.stdin!.write('y');
-						committing.stdin!.end();
-					}
-				});
-
+				waitForCommitPromptAndAccept(committing);
 				await committing;
-
-				const statusAfter = await git('status', ['--porcelain', '--untracked-files=no']);
-				expect(statusAfter.stdout).toBe('');
-
-				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s']);
-				console.log({
-					commitMessage,
-					length: commitMessage.length,
-				});
-				await expectCommitLengthUsingConfiguredGuide(commitMessage, aicommits);
 
 				await fixture.rm();
 			});

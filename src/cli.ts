@@ -5,11 +5,22 @@ import prepareCommitMessageHook from './commands/prepare-commit-msg-hook.js';
 import configCommand from './commands/config.js';
 import hookCommand, { isCalledFromGitHook } from './commands/hook.js';
 import { getDisplayVersion } from './utils/version.js';
+import { getDeprecatedFlagError } from './utils/config.js';
+import { KnownError } from './utils/error.js';
 
 const displayVersion = getDisplayVersion(import.meta.url);
 
 const rawArgv = process.argv.slice(2);
 const isCalledFromHookCommand = rawArgv[0] === 'prepare-commit-msg-hook';
+const deprecatedFlags = [
+	'--type',
+	'--details',
+	'--details-style',
+	'--instructions',
+	'--conventional-format',
+	'--conventional-types',
+	'--conventional-scope',
+];
 
 cli(
 	{
@@ -58,25 +69,13 @@ cli(
 				type: String,
 				description: 'API mode to use: responses (default) or chat',
 			},
-			detailsStyle: {
+			messageFile: {
 				type: String,
-				description: 'Body style when --details is enabled: paragraph, list, or markdown',
+				description: 'Markdown file used to guide commit message generation',
 			},
-			instructions: {
+			postResponseScript: {
 				type: String,
-				description: 'Additional custom prompt instructions (tone, detail level, wording, etc.)',
-			},
-			conventionalFormat: {
-				type: String,
-				description: 'Custom conventional commit format template (works with --type conventional)',
-			},
-			conventionalTypes: {
-				type: String,
-				description: 'Custom conventional commit type map as JSON (works with --type conventional)',
-			},
-			conventionalScope: {
-				type: String,
-				description: 'Conventional scope preference: true or false (default: false)',
+				description: 'Executable script that can rewrite the AI response via stdin/stdout',
 			},
 			baseUrl: {
 				type: String,
@@ -112,6 +111,12 @@ cli(
 		ignoreArgv: type => type === 'unknown-flag' || type === 'argument',
 	},
 	(argv) => {
+		for (const flag of deprecatedFlags) {
+			if (rawArgv.some(argument => argument === flag || argument.startsWith(`${flag}=`))) {
+				throw new KnownError(getDeprecatedFlagError(flag));
+			}
+		}
+
 		if (argv.flags.version) {
 			console.log(displayVersion);
 			process.exit(0);
@@ -124,16 +129,11 @@ cli(
 				argv.flags.generate,
 				argv.flags.exclude,
 				argv.flags.all,
-				argv.flags.type,
-				argv.flags.details,
 				argv.flags.showReasoning,
 				argv.flags.reasoningEffort,
 				argv.flags.apiMode,
-				argv.flags.detailsStyle,
-				argv.flags.instructions,
-				argv.flags.conventionalFormat,
-				argv.flags.conventionalTypes,
-				argv.flags.conventionalScope,
+				argv.flags.messageFile,
+				argv.flags.postResponseScript,
 				argv.flags.baseUrl,
 				argv.flags.confirm || argv.flags.yes,
 				rawArgv,
