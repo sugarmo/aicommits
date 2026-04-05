@@ -11,7 +11,6 @@ import {
 import {
 	getDeprecatedConfigError,
 	migrateLegacyMessageConfig,
-	resolveLegacyMessageInstructionsMarkdown,
 } from './config/legacy-message.js';
 
 const apiModes = ['responses', 'chat'] as const;
@@ -582,6 +581,23 @@ const backupConfigFileIfNeeded = async (
 	await writeFileIfMissing(`${sourcePath}.bak`, sourceContent);
 };
 
+const migrateLegacySingleFileConfigSource = async (
+	config: RawConfig,
+	sourcePath: string,
+	sourceContent: string | undefined,
+) => {
+	await backupConfigFileIfNeeded(sourcePath, sourceContent);
+	await fs.rm(sourcePath);
+	await fs.mkdir(configDirectoryPath, { recursive: true });
+	await migrateLegacyMessageConfig({
+		config,
+		configDirectoryPath,
+		normalizeLegacyConfigKeys,
+		writeConfig: writeConfigFile,
+	});
+	await writeConfigFile(config);
+};
+
 const readTomlFileIfExists = async (
 	targetPath: string,
 ): Promise<{ config: RawConfig; content: string; path: string } | undefined> => {
@@ -708,7 +724,9 @@ export const getConfig = async (
 	const { config, sourceContent, sourcePath } = await readConfigFile();
 	const isLegacySingleFileConfigSource = sourcePath === configDirectoryPath;
 	normalizeLegacyConfigKeys(config);
-	if (!isLegacySingleFileConfigSource) {
+	if (isLegacySingleFileConfigSource && sourcePath) {
+		await migrateLegacySingleFileConfigSource(config, sourcePath, sourceContent);
+	} else {
 		await migrateLegacyMessageConfig({
 			backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
 			config,
@@ -756,19 +774,13 @@ export const getConfig = async (
 		configDirectoryPath,
 		messagePathValue,
 		postResponseScriptValue,
-		suppressErrors: suppressErrors || isLegacySingleFileConfigSource,
+		suppressErrors,
 	});
-	const legacyMessageInstructionsMarkdown = isLegacySingleFileConfigSource
-		? resolveLegacyMessageInstructionsMarkdown(config, selectedProfile)
-		: undefined;
 
 	return {
 		...(parsedConfig as Record<string, never>),
 		configDirectoryPath,
 		...messageConfig,
-		...(legacyMessageInstructionsMarkdown
-			? { messageInstructionsMarkdown: legacyMessageInstructionsMarkdown }
-			: {}),
 	} as ValidConfig;
 };
 
@@ -778,7 +790,9 @@ export const setConfigs = async (
 	const { config, sourceContent, sourcePath } = await readConfigFile();
 	const isLegacySingleFileConfigSource = sourcePath === configDirectoryPath;
 	normalizeLegacyConfigKeys(config);
-	if (!isLegacySingleFileConfigSource) {
+	if (isLegacySingleFileConfigSource && sourcePath) {
+		await migrateLegacySingleFileConfigSource(config, sourcePath, sourceContent);
+	} else {
 		await migrateLegacyMessageConfig({
 			backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
 			config,

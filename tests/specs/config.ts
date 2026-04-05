@@ -212,7 +212,7 @@ export default testSuite(({ describe }) => {
 			await fixture.rm();
 		});
 
-		test('keeps reading legacy single-file ~/.aicommits configs without migration writes', async () => {
+		test('migrates legacy single-file ~/.aicommits configs into the new directory layout', async () => {
 			const { fixture, aicommits } = await createFixture({
 				'.aicommits': [
 					'api-key = "test-token"',
@@ -225,17 +225,20 @@ export default testSuite(({ describe }) => {
 			const get = await aicommits(['config', 'get', 'api-key']);
 			expect(get.stdout).toBe('api-key=test-token');
 
-			const legacyConfigStats = await fs.lstat(path.join(fixture.path, '.aicommits'));
-			expect(legacyConfigStats.isFile()).toBe(true);
+			const migratedConfigDirectory = path.join(fixture.path, '.aicommits');
+			const migratedConfigStats = await fs.lstat(migratedConfigDirectory);
+			expect(migratedConfigStats.isDirectory()).toBe(true);
 
-			let messageFileExists = true;
-			try {
-				await fs.readFile(path.join(fixture.path, '.aicommits', 'message.md'), 'utf8');
-			} catch {
-				messageFileExists = false;
-			}
+			const migratedConfigFile = await fs.readFile(path.join(migratedConfigDirectory, 'config.toml'), 'utf8');
+			expect(migratedConfigFile).toMatch(/api-key\s*=\s*"test-token"/);
+			expect(migratedConfigFile).not.toMatch(/\bdetails\b/);
 
-			expect(messageFileExists).toBe(false);
+			const messageFile = await fs.readFile(path.join(migratedConfigDirectory, 'message.md'), 'utf8');
+			expect(messageFile).toMatch('Include a body only when the title alone is not sufficient.');
+			expect(messageFile).toMatch('use concise markdown without fenced code blocks');
+
+			const legacyBackupFile = await fs.readFile(path.join(fixture.path, '.aicommits.bak'), 'utf8');
+			expect(legacyBackupFile).toMatch('details = true');
 
 			await fixture.rm();
 		});
