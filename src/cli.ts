@@ -13,13 +13,34 @@ const displayVersion = getDisplayVersion(import.meta.url);
 const rawArgv = process.argv.slice(2);
 const isCalledFromHookCommand = rawArgv[0] === 'prepare-commit-msg-hook';
 const deprecatedFlags = [
-	'--type',
-	'--details',
-	'--details-style',
-	'--instructions',
-	'--conventional-format',
-	'--conventional-types',
-	'--conventional-scope',
+	{
+		flag: '--type',
+		matches: ['--type', '-t'],
+	},
+	{
+		flag: '--details',
+		matches: ['--details'],
+	},
+	{
+		flag: '--details-style',
+		matches: ['--details-style'],
+	},
+	{
+		flag: '--instructions',
+		matches: ['--instructions'],
+	},
+	{
+		flag: '--conventional-format',
+		matches: ['--conventional-format'],
+	},
+	{
+		flag: '--conventional-types',
+		matches: ['--conventional-types'],
+	},
+	{
+		flag: '--conventional-scope',
+		matches: ['--conventional-scope'],
+	},
 ];
 
 cli(
@@ -111,8 +132,8 @@ cli(
 		ignoreArgv: type => type === 'unknown-flag' || type === 'argument',
 	},
 	(argv) => {
-		for (const flag of deprecatedFlags) {
-			if (rawArgv.some(argument => argument === flag || argument.startsWith(`${flag}=`))) {
+		for (const { flag, matches } of deprecatedFlags) {
+			if (rawArgv.some(argument => matches.some(match => argument === match || argument.startsWith(`${match}=`)))) {
 				throw new KnownError(getDeprecatedFlagError(flag));
 			}
 		}

@@ -212,6 +212,34 @@ export default testSuite(({ describe }) => {
 			await fixture.rm();
 		});
 
+		test('keeps reading legacy single-file ~/.aicommits configs without migration writes', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits': [
+					'api-key = "test-token"',
+					'base-url = "https://api.example.com/v1"',
+					'details = true',
+					'details-style = "markdown"',
+				].join('\n'),
+			});
+
+			const get = await aicommits(['config', 'get', 'api-key']);
+			expect(get.stdout).toBe('api-key=test-token');
+
+			const legacyConfigStats = await fs.lstat(path.join(fixture.path, '.aicommits'));
+			expect(legacyConfigStats.isFile()).toBe(true);
+
+			let messageFileExists = true;
+			try {
+				await fs.readFile(path.join(fixture.path, '.aicommits', 'message.md'), 'utf8');
+			} catch {
+				messageFileExists = false;
+			}
+
+			expect(messageFileExists).toBe(false);
+
+			await fixture.rm();
+		});
+
 		test('fails at runtime when base-url is missing', async () => {
 			const { fixture, aicommits } = await createFixture({
 				'.aicommits/config.toml': 'api-key = "test-token"',

@@ -63,6 +63,23 @@ export default testSuite(({ describe }) => {
 	}
 
 	describe('Commits', async ({ test }) => {
+		test('rejects deprecated -t alias with migration guidance', async () => {
+			const { fixture, aicommits } = await createFixture(files);
+			const git = await createGit(fixture.path);
+
+			await git('add', ['data.json']);
+
+			const { stdout, stderr, exitCode } = await aicommits(['-t', 'conventional'], {
+				reject: false,
+			});
+
+			expect(exitCode).toBe(1);
+			expect(`${stdout}\n${stderr}`).toMatch('Flag "--type" has been removed');
+			expect(`${stdout}\n${stderr}`).toMatch('message.md');
+
+			await fixture.rm();
+		});
+
 		test('Excludes files', async () => {
 			const { fixture, aicommits } = await createFixture(files);
 			const git = await createGit(fixture.path);

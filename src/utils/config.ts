@@ -11,6 +11,7 @@ import {
 import {
 	getDeprecatedConfigError,
 	migrateLegacyMessageConfig,
+	resolveLegacyMessageInstructionsMarkdown,
 } from './config/legacy-message.js';
 
 const apiModes = ['responses', 'chat'] as const;
@@ -705,14 +706,17 @@ export const getConfig = async (
 	suppressErrors?: boolean,
 ): Promise<ValidConfig> => {
 	const { config, sourceContent, sourcePath } = await readConfigFile();
+	const isLegacySingleFileConfigSource = sourcePath === configDirectoryPath;
 	normalizeLegacyConfigKeys(config);
-	await migrateLegacyMessageConfig({
-		backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
-		config,
-		configDirectoryPath,
-		normalizeLegacyConfigKeys,
-		writeConfig: writeConfigFile,
-	});
+	if (!isLegacySingleFileConfigSource) {
+		await migrateLegacyMessageConfig({
+			backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
+			config,
+			configDirectoryPath,
+			normalizeLegacyConfigKeys,
+			writeConfig: writeConfigFile,
+		});
+	}
 
 	const parsedConfig: Record<string, unknown> = {};
 	const configuredProfile = (
@@ -752,13 +756,19 @@ export const getConfig = async (
 		configDirectoryPath,
 		messagePathValue,
 		postResponseScriptValue,
-		suppressErrors,
+		suppressErrors: suppressErrors || isLegacySingleFileConfigSource,
 	});
+	const legacyMessageInstructionsMarkdown = isLegacySingleFileConfigSource
+		? resolveLegacyMessageInstructionsMarkdown(config, selectedProfile)
+		: undefined;
 
 	return {
 		...(parsedConfig as Record<string, never>),
 		configDirectoryPath,
 		...messageConfig,
+		...(legacyMessageInstructionsMarkdown
+			? { messageInstructionsMarkdown: legacyMessageInstructionsMarkdown }
+			: {}),
 	} as ValidConfig;
 };
 
@@ -766,14 +776,17 @@ export const setConfigs = async (
 	keyValues: [key: string, value: string][],
 ) => {
 	const { config, sourceContent, sourcePath } = await readConfigFile();
+	const isLegacySingleFileConfigSource = sourcePath === configDirectoryPath;
 	normalizeLegacyConfigKeys(config);
-	await migrateLegacyMessageConfig({
-		backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
-		config,
-		configDirectoryPath,
-		normalizeLegacyConfigKeys,
-		writeConfig: writeConfigFile,
-	});
+	if (!isLegacySingleFileConfigSource) {
+		await migrateLegacyMessageConfig({
+			backupConfig: async () => backupConfigFileIfNeeded(sourcePath, sourceContent),
+			config,
+			configDirectoryPath,
+			normalizeLegacyConfigKeys,
+			writeConfig: writeConfigFile,
+		});
+	}
 
 	for (const [key, value] of keyValues) {
 		const deprecatedError = getDeprecatedConfigError(key);

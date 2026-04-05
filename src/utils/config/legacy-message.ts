@@ -293,6 +293,25 @@ const hasDeprecatedMessageConfig = (scope: RawConfig) => deprecatedMessageConfig
 	key => readDeprecatedScopeValue(scope, key) !== undefined,
 );
 
+export const resolveLegacyMessageInstructionsMarkdown = (
+	config: RawConfig,
+	selectedProfile = '',
+) => {
+	const { profiles } = config;
+	if (selectedProfile && isObjectRecord(profiles)) {
+		const profileScope = profiles[selectedProfile];
+		if (isObjectRecord(profileScope) && hasDeprecatedMessageConfig(profileScope)) {
+			return buildLegacyMessageMarkdown(parseLegacyMessageConfig(profileScope));
+		}
+	}
+
+	if (hasDeprecatedMessageConfig(config)) {
+		return buildLegacyMessageMarkdown(parseLegacyMessageConfig(config));
+	}
+
+	return undefined;
+};
+
 const sanitizeProfileFileSegment = (profileName: string) => {
 	const normalized = profileName.trim().replace(/[^\w.-]+/g, '-').replace(/-+/g, '-');
 	return normalized.replace(/^-+|-+$/g, '') || 'profile';
