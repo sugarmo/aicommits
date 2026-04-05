@@ -3,6 +3,7 @@ import { execa } from 'execa';
 import { getStagedDiff } from '../utils/git.js';
 import { getConfig } from '../utils/config.js';
 import { generateCommitMessage } from '../utils/openai.js';
+import { applyPostResponseScript } from '../utils/post-response.js';
 
 const hookCommandName = 'prepare-commit-msg-hook';
 
@@ -60,13 +61,7 @@ export default () => (async () => {
 
 	const config = await getConfig({});
 	const promptOptions = {
-		includeDetails: config.details,
-		detailsStyle: config['details-style'],
-		detailColumnGuide: config['detail-column-guide'],
-		instructions: config.instructions,
-		conventionalFormat: config['conventional-format'],
-		conventionalTypes: config['conventional-types'],
-		conventionalScope: config['conventional-scope'],
+		messageInstructionsMarkdown: config.messageInstructionsMarkdown,
 		reasoningEffort: config['reasoning-effort'],
 		requestOptionsJson: config['request-options'],
 		apiMode: config['api-mode'],
@@ -77,11 +72,8 @@ export default () => (async () => {
 	const messages = await generateCommitMessage(
 		config['api-key'],
 		config.model,
-		config.locale,
 		staged.diff,
 		config.generate,
-		config['title-length-guide'],
-		config.type,
 		config.timeout,
 		config.proxy,
 		promptOptions,
@@ -94,7 +86,23 @@ export default () => (async () => {
 	if (!finalMessage) {
 		return;
 	}
-	const finalOutput = `${finalMessage}\n`;
+	let finalOutputMessage = finalMessage;
+	try {
+		finalOutputMessage = await applyPostResponseScript(
+			finalMessage,
+			config.postResponseScriptPath,
+			{
+				candidateCount: 1,
+				candidateIndex: 0,
+				commitSource: 'hook',
+				configDirectoryPath: config.configDirectoryPath,
+				cwd: process.cwd(),
+				messageFilePath: config.messageFilePath,
+			},
+		);
+	} catch {}
+
+	const finalOutput = `${finalOutputMessage}\n`;
 
 	await fs.writeFile(
 		messageFilePath,

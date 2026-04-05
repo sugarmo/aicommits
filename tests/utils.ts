@@ -8,7 +8,8 @@ import {
 	type FsFixture,
 } from 'fs-fixture';
 
-const aicommitsPath = path.resolve('./dist/cli.mjs');
+const aicommitsPath = path.resolve('./src/cli.ts');
+const tsxCliPath = path.resolve('./node_modules/tsx/dist/cli.mjs');
 
 const TEST_PROVIDER_API_KEY = (
 	process.env.AICOMMITS_TEST_API_KEY
@@ -41,12 +42,13 @@ const createAicommits = (fixture: FsFixture) => {
 	return (
 		args?: string[],
 		options?: Options,
-	) => execaNode(aicommitsPath, args, {
+	) => execaNode(tsxCliPath, [aicommitsPath, ...(args || [])], {
 		cwd: fixture.path,
 		...options,
 		extendEnv: false,
 		env: {
 			...homeEnv,
+			NODE_NO_WARNINGS: '1',
 			...options?.env,
 		},
 

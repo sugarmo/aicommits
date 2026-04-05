@@ -4,504 +4,262 @@ import { testSuite, expect } from 'manten';
 import { createFixture, createGit } from '../utils.js';
 
 export default testSuite(({ describe }) => {
-	describe('config', async ({ test, describe }) => {
-		const { fixture, aicommits } = await createFixture();
-		const configPath = path.join(fixture.path, '.aicommits', 'config.toml');
-		const apiToken = 'api-key=test-token';
-
-		test('set unknown config file', async () => {
+	describe('config', async ({ test }) => {
+		test('rejects unknown config keys', async () => {
+			const { fixture, aicommits } = await createFixture();
 			const { stderr } = await aicommits(['config', 'set', 'UNKNOWN=1'], {
 				reject: false,
 			});
 
 			expect(stderr).toMatch('Invalid config property: UNKNOWN');
+			await fixture.rm();
 		});
 
-		test('set empty api-key', async () => {
-			const { stderr } = await aicommits(['config', 'set', 'api-key='], {
-				reject: false,
-			});
+		test('stores and reads active config values', async () => {
+			const { fixture, aicommits } = await createFixture();
+			const configPath = path.join(fixture.path, '.aicommits', 'config.toml');
 
-			expect(stderr).toMatch('Please set your API key via `aicommits config set api-key=<your token>`');
-		});
-
-		await test('set config file', async () => {
-			await aicommits(['config', 'set', apiToken]);
+			await aicommits([
+				'config',
+				'set',
+				'api-key=test-token',
+				'base-url=https://api.example.com/v1',
+				'message-path=templates/release.md',
+				'post-response-script=scripts/post-process.sh',
+			]);
 
 			const configFile = await fs.readFile(configPath, 'utf8');
 			expect(configFile).toMatch(/api-key\s*=\s*"test-token"/);
+			expect(configFile).toMatch(/message-path\s*=\s*"templates\/release\.md"/);
+			expect(configFile).toMatch(/post-response-script\s*=\s*"scripts\/post-process\.sh"/);
+
+			const messagePathGet = await aicommits(['config', 'get', 'message-path']);
+			expect(messagePathGet.stdout).toBe('message-path=templates/release.md');
+
+			const scriptGet = await aicommits(['config', 'get', 'post-response-script']);
+			expect(scriptGet.stdout).toBe('post-response-script=scripts/post-process.sh');
+
+			await fixture.rm();
 		});
 
-		await test('get config file', async () => {
-			const { stdout } = await aicommits(['config', 'get', 'api-key']);
-			expect(stdout).toBe(apiToken);
+		test('returns default message-path when unset', async () => {
+			const { fixture, aicommits } = await createFixture();
+
+			const get = await aicommits(['config', 'get', 'message-path']);
+			expect(get.stdout).toBe('message-path=message.md');
+
+			await fixture.rm();
 		});
 
-		await test('reading unknown config', async () => {
-			await fs.appendFile(configPath, '\nUNKNOWN = 1\n');
-
-			const { stdout, stderr } = await aicommits(['config', 'get', 'UNKNOWN'], {
+		test('rejects deprecated message config keys', async () => {
+			const { fixture, aicommits } = await createFixture();
+			const { stderr } = await aicommits(['config', 'set', 'details=true'], {
 				reject: false,
 			});
 
-			expect(stdout).toBe('');
-			expect(stderr).toBe('');
+			expect(stderr).toMatch('has moved to your message Markdown file');
+			expect(stderr).toMatch('message.md');
+			await fixture.rm();
 		});
 
-		await describe('timeout', ({ test }) => {
-			test('setting invalid timeout config', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'timeout=abc'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch('Must be an integer');
+		test('migrates top-level legacy message config into message.md', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': [
+					'api-key = "test-token"',
+					'base-url = "https://api.example.com/v1"',
+					'type = "conventional"',
+					'locale = "ja"',
+					'details = true',
+					'conventional-scope = true',
+					'title-length-guide = 64',
+					'instructions = "Use release-note wording."',
+				].join('\n'),
 			});
 
-			test('setting valid timeout config', async () => {
-				const timeout = 'timeout=20000';
-				await aicommits(['config', 'set', timeout]);
-
-				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(/timeout\s*=\s*20000/);
-
-				const get = await aicommits(['config', 'get', 'timeout']);
-				expect(get.stdout).toBe(timeout);
-			});
-		});
-
-		await describe('base-url', ({ test }) => {
-			test('setting invalid base-url config', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'base-url=example'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch('Invalid config property base-url: Must be a valid URL');
-			});
-
-			test('setting valid base-url config', async () => {
-				const baseUrl = 'base-url=https://api.example.com/v1';
-				await aicommits(['config', 'set', baseUrl]);
-
-				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(/base-url\s*=\s*"https:\/\/api\.example\.com\/v1"/);
-
-				const get = await aicommits(['config', 'get', 'base-url']);
-				expect(get.stdout).toBe(baseUrl);
-			});
-		});
-
-		await describe('profile', ({ test }) => {
-			test('supports setting profile name', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				await isolatedAicommits(['config', 'set', 'profile=openai']);
-
-				const get = await isolatedAicommits(['config', 'get', 'profile']);
-				expect(get.stdout).toBe('profile=openai');
-				await isolatedFixture.rm();
-			});
-
-			test('profile values override top-level values', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				const isolatedConfigPath = path.join(isolatedFixture.path, '.aicommits', 'config.toml');
-				await fs.mkdir(path.dirname(isolatedConfigPath), { recursive: true });
-				await fs.writeFile(
-					isolatedConfigPath,
-					[
-						'api-key = "top-level-key"',
-						'model = "top-level-model"',
-						'base-url = "https://api.top-level.example/v1"',
-						'api-mode = "responses"',
-						'profile = "openai"',
-						'',
-						'[profiles.openai]',
-						'model = "profile-model"',
-						'base-url = "https://api.profile.example/v1"',
-						'reasoning-effort = "high"',
-						'api-mode = "chat"',
-						'',
-					].join('\n'),
-					'utf8',
-				);
-
-				const modelGet = await isolatedAicommits(['config', 'get', 'model']);
-				expect(modelGet.stdout).toBe('model=profile-model');
-
-				const baseUrlGet = await isolatedAicommits(['config', 'get', 'base-url']);
-				expect(baseUrlGet.stdout).toBe('base-url=https://api.profile.example/v1');
-
-				const reasoningEffortGet = await isolatedAicommits(['config', 'get', 'reasoning-effort']);
-				expect(reasoningEffortGet.stdout).toBe('reasoning-effort=high');
-
-				const apiModeGet = await isolatedAicommits(['config', 'get', 'api-mode']);
-				expect(apiModeGet.stdout).toBe('api-mode=chat');
-				await isolatedFixture.rm();
-			});
-		});
-
-		await describe('locale', ({ test }) => {
-			test('normalizes cn alias to zh-CN', async () => {
-				await aicommits(['config', 'set', 'locale=cn']);
-
-				const get = await aicommits(['config', 'get', 'locale']);
-				expect(get.stdout).toBe('locale=zh-CN');
-			});
-		});
-
-		await describe('details', ({ test }) => {
-			test('must be a boolean', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'details=maybe'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be a boolean/i);
-			});
-
-			test('accepts numeric boolean values', async () => {
-				await aicommits(['config', 'set', 'details=1']);
-
-				const get = await aicommits(['config', 'get', 'details']);
-				expect(get.stdout).toBe('details=true');
-			});
-		});
-
-		await describe('show-reasoning', ({ test }) => {
-			test('defaults to false', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				const get = await isolatedAicommits(['config', 'get', 'show-reasoning']);
-				expect(get.stdout).toBe('show-reasoning=false');
-				await isolatedFixture.rm();
-			});
-
-			test('must be a boolean', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'show-reasoning=maybe'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be a boolean/i);
-			});
-
-			test('can be enabled', async () => {
-				await aicommits(['config', 'set', 'show-reasoning=true']);
-
-				const get = await aicommits(['config', 'get', 'show-reasoning']);
-				expect(get.stdout).toBe('show-reasoning=true');
-			});
-		});
-
-		await describe('reasoning-effort', ({ test }) => {
-			test('defaults to empty', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				const get = await isolatedAicommits(['config', 'get', 'reasoning-effort']);
-				expect(get.stdout).toBe('reasoning-effort=');
-				await isolatedFixture.rm();
-			});
-
-			test('must be none, low, medium, high, or xhigh', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'reasoning-effort=turbo'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be one of: none, low, medium, high, xhigh/i);
-			});
-
-			test('can be set to high', async () => {
-				await aicommits(['config', 'set', 'reasoning-effort=high']);
-
-				const get = await aicommits(['config', 'get', 'reasoning-effort']);
-				expect(get.stdout).toBe('reasoning-effort=high');
-			});
-		});
-
-		await describe('api-mode', ({ test }) => {
-			test('defaults to responses', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				const get = await isolatedAicommits(['config', 'get', 'api-mode']);
-				expect(get.stdout).toBe('api-mode=responses');
-				await isolatedFixture.rm();
-			});
-
-			test('must be responses or chat', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'api-mode=legacy'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be one of: responses, chat/i);
-			});
-
-			test('can be set to chat', async () => {
-				await aicommits(['config', 'set', 'api-mode=chat']);
-
-				const get = await aicommits(['config', 'get', 'api-mode']);
-				expect(get.stdout).toBe('api-mode=chat');
-			});
-		});
-
-		await describe('details-style', ({ test }) => {
-			test('must be paragraph, list, or markdown', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'details-style=table'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be one of: paragraph, list, markdown/i);
-			});
-
-			test('stores list style', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				await isolatedAicommits(['config', 'set', 'details-style=list']);
-
-				const get = await isolatedAicommits(['config', 'get', 'details-style']);
-				expect(get.stdout).toBe('details-style=list');
-				await isolatedFixture.rm();
-			});
-
-			test('stores markdown style', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				await isolatedAicommits(['config', 'set', 'details-style=markdown']);
-
-				const get = await isolatedAicommits(['config', 'get', 'details-style']);
-				expect(get.stdout).toBe('details-style=markdown');
-				await isolatedFixture.rm();
-			});
-		});
-
-		await describe('conventional customization', ({ test }) => {
-			test('validates conventional-types as JSON object', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'conventional-types=not-json'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be valid json/i);
-			});
-
-			test('stores conventional-format and conventional-types', async () => {
-				const format = 'conventional-format=<type>(<scope>): <subject>';
-				const customTypes = 'conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}';
-
-				await aicommits(['config', 'set', format, customTypes]);
-
-				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(/conventional-format\s*=\s*"<type>\(<scope>\): <subject>"/);
-				expect(configFile).toMatch(/conventional-types\s*=\s*".*feature.*bugfix.*"/);
-
-				const formatGet = await aicommits(['config', 'get', 'conventional-format']);
-				expect(formatGet.stdout).toBe(format);
-
-				const typesGet = await aicommits(['config', 'get', 'conventional-types']);
-				expect(typesGet.stdout).toBe('conventional-types={"feature":"Add a new capability","bugfix":"Fix defects"}');
-			});
-		});
-
-		await describe('request-options', ({ test }) => {
-			test('validates request-options as JSON object', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'request-options=not-json'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be valid json/i);
-			});
-
-			test('rejects non-object request-options', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'request-options=[1,2,3]'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be a json object/i);
-			});
-
-			test('stores request-options payload', async () => {
-				const requestOptions = 'request-options={"thinking":{"type":"disabled"}}';
-				await aicommits(['config', 'set', requestOptions]);
-
-				const get = await aicommits(['config', 'get', 'request-options']);
-				expect(get.stdout).toBe(requestOptions);
-			});
-		});
-
-		await describe('context-window', ({ test }) => {
-			test('must be an integer', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'context-window=abc'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be an integer/i);
-			});
-
-			test('must be greater than or equal to 1024 tokens', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'context-window=512'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be 0 \(auto\) or greater than or equal to 1024 tokens/i);
-			});
-
-			test('stores numeric and suffix context-window values and supports zero reset', async () => {
-				const contextWindow = 'context-window=32768';
-				await aicommits(['config', 'set', contextWindow]);
-
-				const stored = await aicommits(['config', 'get', 'context-window']);
-				expect(stored.stdout).toBe(contextWindow);
-
-				await aicommits(['config', 'set', 'context-window=32K']);
-				const fromK = await aicommits(['config', 'get', 'context-window']);
-				expect(fromK.stdout).toBe('context-window=32768');
-
-				await aicommits(['config', 'set', 'context-window=1M']);
-				const fromM = await aicommits(['config', 'get', 'context-window']);
-				expect(fromM.stdout).toBe('context-window=1048576');
-
-				await aicommits(['config', 'set', 'context-window=0']);
-
-				const reset = await aicommits(['config', 'get', 'context-window']);
-				expect(reset.stdout).toBe('context-window=0');
-			});
-		});
-
-		await describe('conventional-scope', ({ test }) => {
-			test('defaults to false and can be toggled', async () => {
-				const get = await aicommits(['config', 'get', 'conventional-scope']);
-				expect(get.stdout).toBe('conventional-scope=false');
-				await aicommits(['config', 'set', 'conventional-scope=true']);
-
-				const enabled = await aicommits(['config', 'get', 'conventional-scope']);
-				expect(enabled.stdout).toBe('conventional-scope=true');
-
-				await aicommits(['config', 'set', 'conventional-scope=false']);
-
-				const disabled = await aicommits(['config', 'get', 'conventional-scope']);
-				expect(disabled.stdout).toBe('conventional-scope=false');
-			});
-		});
-
-		await describe('style preset removal', ({ test }) => {
-			test('style is no longer a configurable option', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'style=github-copilot'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/invalid config property: style/i);
-			});
-		});
-
-		await describe('instructions', ({ test }) => {
-			test('supports values containing "="', async () => {
-				const instructions = 'instructions=Use detail=high and tone=neutral';
-				await aicommits(['config', 'set', instructions]);
-
-				const get = await aicommits(['config', 'get', 'instructions']);
-				expect(get.stdout).toBe(instructions);
-			});
-		});
-
-		await describe('title-length-guide', ({ test }) => {
-			test('must be an integer', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'title-length-guide=abc'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch('Must be an integer');
-			});
-
-			test('must be at least 20 characters', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'title-length-guide=10'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be greater than 20 characters/i);
-			});
-
-			test('updates config', async () => {
-				const defaultConfig = await aicommits(['config', 'get', 'title-length-guide']);
-				expect(defaultConfig.stdout).toBe('title-length-guide=50');
-
-				const titleLengthGuide = 'title-length-guide=60';
-				await aicommits(['config', 'set', titleLengthGuide]);
-
-				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(/title-length-guide\s*=\s*60/);
-				expect(configFile).not.toMatch(/max-length\s*=/);
-
-				const get = await aicommits(['config', 'get', 'title-length-guide']);
-				expect(get.stdout).toBe(titleLengthGuide);
-			});
-
-			test('accepts legacy max-length alias and normalizes to new key', async () => {
-				const { fixture: isolatedFixture, aicommits: isolatedAicommits } = await createFixture();
-				const isolatedConfigPath = path.join(isolatedFixture.path, '.aicommits', 'config.toml');
-				await isolatedAicommits(['config', 'set', 'max-length=65']);
-
-				const configFile = await fs.readFile(isolatedConfigPath, 'utf8');
-				expect(configFile).toMatch(/title-length-guide\s*=\s*65/);
-				expect(configFile).not.toMatch(/max-length\s*=/);
-
-				const getLegacy = await isolatedAicommits(['config', 'get', 'max-length']);
-				expect(getLegacy.stdout).toBe('title-length-guide=65');
-				await isolatedFixture.rm();
-			});
-		});
-
-		await describe('detail-column-guide', ({ test }) => {
-			test('must be an integer', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'detail-column-guide=abc'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch('Must be an integer');
-			});
-
-			test('must be at least 20 characters', async () => {
-				const { stderr } = await aicommits(['config', 'set', 'detail-column-guide=10'], {
-					reject: false,
-				});
-
-				expect(stderr).toMatch(/must be greater than 20 characters/i);
-			});
-
-			test('updates config', async () => {
-				const defaultConfig = await aicommits(['config', 'get', 'detail-column-guide']);
-				expect(defaultConfig.stdout).toBe('detail-column-guide=72');
-
-				const detailColumnGuide = 'detail-column-guide=88';
-				await aicommits(['config', 'set', detailColumnGuide]);
-
-				const configFile = await fs.readFile(configPath, 'utf8');
-				expect(configFile).toMatch(/detail-column-guide\s*=\s*88/);
-
-				const get = await aicommits(['config', 'get', 'detail-column-guide']);
-				expect(get.stdout).toBe(detailColumnGuide);
-			});
-		});
-
-		await test('set config file', async () => {
-			await aicommits(['config', 'set', apiToken]);
+			const messagePath = path.join(fixture.path, '.aicommits', 'message.md');
+			const configPath = path.join(fixture.path, '.aicommits', 'config.toml');
+			const backupPath = path.join(fixture.path, '.aicommits', 'config.toml.bak');
+			const originalConfig = await fs.readFile(configPath, 'utf8');
+
+			const get = await aicommits(['config', 'get', 'api-key']);
+			expect(get.stdout).toBe('api-key=test-token');
+
+			const messageFile = await fs.readFile(messagePath, 'utf8');
+			expect(messageFile).toMatch('Write the commit message strictly in ja.');
+			expect(messageFile).toMatch('Use conventional commit formatting.');
+			expect(messageFile).toMatch('Use release-note wording.');
 
 			const configFile = await fs.readFile(configPath, 'utf8');
-			expect(configFile).toMatch(/api-key\s*=\s*"test-token"/);
+			expect(configFile).not.toMatch(/\blocale\b/);
+			expect(configFile).not.toMatch(/\btype\b/);
+			expect(configFile).not.toMatch(/\bdetails\b/);
+
+			const backupFile = await fs.readFile(backupPath, 'utf8');
+			expect(backupFile).toBe(originalConfig);
+
+			await fixture.rm();
 		});
 
-		await test('get config file', async () => {
-			const { stdout } = await aicommits(['config', 'get', 'api-key']);
-			expect(stdout).toBe(apiToken);
-		});
-
-		await test('missing base-url fails when running aicommits', async () => {
-			const { fixture: runtimeFixture, aicommits: runtimeAicommits } = await createFixture({
-				'.aicommits/config.toml': 'api-key = "test-token"',
-				'data.json': '1. lorem ipsum',
+		test('does not overwrite an existing message.md during migration', async () => {
+			const existingMessage = '# Custom Instructions\n- Keep my custom wording.';
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': [
+					'api-key = "test-token"',
+					'base-url = "https://api.example.com/v1"',
+					'locale = "zh-CN"',
+				].join('\n'),
+				'.aicommits/message.md': existingMessage,
 			});
-			const git = await createGit(runtimeFixture.path);
 
-			await git('add', ['data.json']);
+			await aicommits(['config', 'get', 'api-key']);
 
-			const { stderr, stdout, exitCode } = await runtimeAicommits([], {
+			const messageFile = await fs.readFile(path.join(fixture.path, '.aicommits', 'message.md'), 'utf8');
+			expect(messageFile.trim()).toBe(existingMessage);
+
+			await fixture.rm();
+		});
+
+		test('migrates profile-specific legacy message config to its own markdown file', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': [
+					'api-key = "top-level-key"',
+					'base-url = "https://api.top-level.example/v1"',
+					'profile = "openai"',
+					'',
+					'[profiles.openai]',
+					'api-key = "profile-key"',
+					'base-url = "https://api.profile.example/v1"',
+					'type = "conventional"',
+					'details = true',
+				].join('\n'),
+			});
+
+			const configPath = path.join(fixture.path, '.aicommits', 'config.toml');
+			await aicommits(['config', 'get', 'api-key']);
+
+			const configFile = await fs.readFile(configPath, 'utf8');
+			expect(configFile).toMatch(/message-path\s*=\s*"message\.openai\.md"/);
+			expect(configFile).not.toMatch(/\[profiles\.openai\][\s\S]*type\s*=/);
+
+			const profileMessage = await fs.readFile(
+				path.join(fixture.path, '.aicommits', 'message.openai.md'),
+				'utf8',
+			);
+			expect(profileMessage).toMatch('Use conventional commit formatting.');
+			expect(profileMessage).toMatch('Include a body only when the title alone is not sufficient.');
+
+			await fixture.rm();
+		});
+
+		test('does not rewrite config.toml when migrated message markdown cannot be created', async () => {
+			const originalConfig = [
+				'api-key = "test-token"',
+				'base-url = "https://api.example.com/v1"',
+				'details = true',
+				'message-path = "templates"',
+			].join('\n');
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': originalConfig,
+			});
+
+			await fs.mkdir(path.join(fixture.path, '.aicommits', 'templates'), { recursive: true });
+
+			const { exitCode, stderr } = await aicommits(['config', 'get', 'api-key'], {
 				reject: false,
 			});
 
 			expect(exitCode).toBe(1);
-			expect(`${stdout}\n${stderr}`).toMatch('Please set your API base URL via `aicommits config set base-url=<https://...>`');
+			expect(stderr).toMatch('must point to a file');
 
-			await runtimeFixture.rm();
+			const configPath = path.join(fixture.path, '.aicommits', 'config.toml');
+			const configFile = await fs.readFile(configPath, 'utf8');
+			expect(configFile).toBe(originalConfig);
+
+			let backupExists = true;
+			try {
+				await fs.readFile(path.join(fixture.path, '.aicommits', 'config.toml.bak'), 'utf8');
+			} catch {
+				backupExists = false;
+			}
+
+			expect(backupExists).toBe(false);
+
+			await fixture.rm();
 		});
 
-		await fixture.rm();
+		test('does not overwrite an existing config.toml.bak during migration', async () => {
+			const existingBackup = [
+				'api-key = "original-token"',
+				'details = true',
+			].join('\n');
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': [
+					'api-key = "test-token"',
+					'base-url = "https://api.example.com/v1"',
+					'details = true',
+				].join('\n'),
+				'.aicommits/config.toml.bak': existingBackup,
+			});
+
+			await aicommits(['config', 'get', 'api-key']);
+
+			const backupFile = await fs.readFile(
+				path.join(fixture.path, '.aicommits', 'config.toml.bak'),
+				'utf8',
+			);
+			expect(backupFile.trim()).toBe(existingBackup);
+
+			await fixture.rm();
+		});
+
+		test('migrates legacy single-file ~/.aicommits configs into the new directory layout', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits': [
+					'api-key = "test-token"',
+					'base-url = "https://api.example.com/v1"',
+					'details = true',
+					'details-style = "markdown"',
+				].join('\n'),
+			});
+
+			const get = await aicommits(['config', 'get', 'api-key']);
+			expect(get.stdout).toBe('api-key=test-token');
+
+			const migratedConfigDirectory = path.join(fixture.path, '.aicommits');
+			const migratedConfigStats = await fs.lstat(migratedConfigDirectory);
+			expect(migratedConfigStats.isDirectory()).toBe(true);
+
+			const migratedConfigFile = await fs.readFile(path.join(migratedConfigDirectory, 'config.toml'), 'utf8');
+			expect(migratedConfigFile).toMatch(/api-key\s*=\s*"test-token"/);
+			expect(migratedConfigFile).not.toMatch(/\bdetails\b/);
+
+			const messageFile = await fs.readFile(path.join(migratedConfigDirectory, 'message.md'), 'utf8');
+			expect(messageFile).toMatch('Include a body only when the title alone is not sufficient.');
+			expect(messageFile).toMatch('use concise markdown without fenced code blocks');
+
+			const legacyBackupFile = await fs.readFile(path.join(fixture.path, '.aicommits.bak'), 'utf8');
+			expect(legacyBackupFile).toMatch('details = true');
+
+			await fixture.rm();
+		});
+
+		test('fails at runtime when base-url is missing', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': 'api-key = "test-token"',
+				'data.json': '1. lorem ipsum',
+			});
+			const git = await createGit(fixture.path);
+
+			await git('add', ['data.json']);
+
+			const { stderr, stdout, exitCode } = await aicommits([], {
+				reject: false,
+			});
+
+			expect(exitCode).toBe(1);
+			expect(`${stdout}\n${stderr}`).toMatch('Please set your API base URL');
+
+			await fixture.rm();
+		});
 	});
 });

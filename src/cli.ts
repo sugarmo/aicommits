@@ -5,11 +5,43 @@ import prepareCommitMessageHook from './commands/prepare-commit-msg-hook.js';
 import configCommand from './commands/config.js';
 import hookCommand, { isCalledFromGitHook } from './commands/hook.js';
 import { getDisplayVersion } from './utils/version.js';
+import { getDeprecatedFlagError } from './utils/config.js';
+import { KnownError } from './utils/error.js';
 
 const displayVersion = getDisplayVersion(import.meta.url);
 
 const rawArgv = process.argv.slice(2);
 const isCalledFromHookCommand = rawArgv[0] === 'prepare-commit-msg-hook';
+const deprecatedFlags = [
+	{
+		flag: '--type',
+		matches: ['--type', '-t'],
+	},
+	{
+		flag: '--details',
+		matches: ['--details'],
+	},
+	{
+		flag: '--details-style',
+		matches: ['--details-style'],
+	},
+	{
+		flag: '--instructions',
+		matches: ['--instructions'],
+	},
+	{
+		flag: '--conventional-format',
+		matches: ['--conventional-format'],
+	},
+	{
+		flag: '--conventional-types',
+		matches: ['--conventional-types'],
+	},
+	{
+		flag: '--conventional-scope',
+		matches: ['--conventional-scope'],
+	},
+];
 
 cli(
 	{
@@ -58,25 +90,13 @@ cli(
 				type: String,
 				description: 'API mode to use: responses (default) or chat',
 			},
-			detailsStyle: {
+			messageFile: {
 				type: String,
-				description: 'Body style when --details is enabled: paragraph, list, or markdown',
+				description: 'Markdown file used to guide commit message generation',
 			},
-			instructions: {
+			postResponseScript: {
 				type: String,
-				description: 'Additional custom prompt instructions (tone, detail level, wording, etc.)',
-			},
-			conventionalFormat: {
-				type: String,
-				description: 'Custom conventional commit format template (works with --type conventional)',
-			},
-			conventionalTypes: {
-				type: String,
-				description: 'Custom conventional commit type map as JSON (works with --type conventional)',
-			},
-			conventionalScope: {
-				type: String,
-				description: 'Conventional scope preference: true or false (default: false)',
+				description: 'Executable script that can rewrite the AI response via stdin/stdout',
 			},
 			baseUrl: {
 				type: String,
@@ -112,6 +132,20 @@ cli(
 		ignoreArgv: type => type === 'unknown-flag' || type === 'argument',
 	},
 	(argv) => {
+		if (argv.flags.type !== undefined) {
+			throw new KnownError(getDeprecatedFlagError('--type'));
+		}
+
+		if (argv.flags.details !== undefined) {
+			throw new KnownError(getDeprecatedFlagError('--details'));
+		}
+
+		for (const { flag, matches } of deprecatedFlags) {
+			if (rawArgv.some(argument => matches.some(match => argument === match || argument.startsWith(`${match}=`)))) {
+				throw new KnownError(getDeprecatedFlagError(flag));
+			}
+		}
+
 		if (argv.flags.version) {
 			console.log(displayVersion);
 			process.exit(0);
@@ -124,16 +158,11 @@ cli(
 				argv.flags.generate,
 				argv.flags.exclude,
 				argv.flags.all,
-				argv.flags.type,
-				argv.flags.details,
 				argv.flags.showReasoning,
 				argv.flags.reasoningEffort,
 				argv.flags.apiMode,
-				argv.flags.detailsStyle,
-				argv.flags.instructions,
-				argv.flags.conventionalFormat,
-				argv.flags.conventionalTypes,
-				argv.flags.conventionalScope,
+				argv.flags.messageFile,
+				argv.flags.postResponseScript,
 				argv.flags.baseUrl,
 				argv.flags.confirm || argv.flags.yes,
 				rawArgv,

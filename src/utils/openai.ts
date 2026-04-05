@@ -8,15 +8,14 @@ import createHttpsProxyAgent from 'https-proxy-agent';
 import { KnownError } from './error.js';
 import type {
 	ApiMode,
-	CommitType,
 	ConfiguredReasoningEffort,
 } from './config.js';
 import {
 	generatePrompt,
-	parseConventionalTypes,
-	type DetailsStyle,
 	type PromptOptions,
 } from './prompt.js';
+
+type DetailsStyle = 'paragraph' | 'list' | 'markdown';
 
 type CompletionStreamEvent = {
 	kind: 'reasoning' | 'content';
@@ -1230,51 +1229,30 @@ export const formatDetailedBodyWithColumnGuide = (
 		.join('\n');
 };
 
-const sanitizeSimpleMessage = (message: string) => sanitizeTitle(
-	stripCodeFences(message)
-		.trim()
-		.split('\n')[0] || '',
-);
-
-const sanitizeDetailedMessage = (
+const sanitizeMessage = (
 	message: string,
-	detailsStyle: DetailsStyle,
-	detailColumnGuide: number,
+	_includeDetails?: boolean,
+	_detailsStyle?: DetailsStyle,
+	_detailColumnGuide?: number,
 ) => {
 	const cleaned = stripCodeFences(message);
 	const { title, body } = splitCommitMessage(cleaned);
-
-	if (detailsStyle === 'markdown') {
-		return formatCommitMessage(
-			title,
-			formatMarkdownBodyWithColumnGuide(body, detailColumnGuide),
-		);
+	if (!title) {
+		return '';
 	}
 
-	const normalizedBody = normalizeDetailedBody(body);
-	const wrappedBody = formatDetailedBodyWithColumnGuide(
-		normalizedBody,
-		detailsStyle,
-		detailColumnGuide,
-	);
+	const normalizedBody = normalizeLineEndings(body)
+		.split('\n')
+		.map(line => line.replace(/\s+$/u, ''))
+		.join('\n')
+		.trim();
 
-	return formatCommitMessage(title, wrappedBody);
+	return normalizedBody
+		? formatCommitMessage(title, normalizedBody)
+		: title;
 };
 
-const sanitizeMessage = (
-	message: string,
-	includeDetails: boolean,
-	detailsStyle: DetailsStyle,
-	detailColumnGuide: number,
-) => {
-	if (includeDetails) {
-		return sanitizeDetailedMessage(message, detailsStyle, detailColumnGuide);
-	}
-
-	return sanitizeSimpleMessage(message);
-};
-
-export type CommitMessageStreamPhase = 'message' | 'title-rewrite';
+export type CommitMessageStreamPhase = 'message';
 export type CommitMessageStreamEvent = CompletionStreamEvent & {
 	phase: CommitMessageStreamPhase;
 };
@@ -1422,344 +1400,7 @@ export const resolveRequestOptionsForApi = (
 	};
 };
 
-const normalizeKey = (value: string) => value.trim().toLowerCase();
-
 const deduplicateMessages = (array: string[]) => Array.from(new Set(array));
-const chineseCharacterPattern = /[\u3400-\u9FFF]/;
-const conventionalTitlePrefixPattern = /^([a-z]+(?:\([^)]+\))?: )(.+)$/i;
-const conventionalTitleTypeScopePattern = /^([a-z]+)(\([^)]+\))?: (.+)$/i;
-const conventionalLeadingTypePattern = /^([a-z]+)(?:\s+|[:-])/i;
-const conventionalTypeAliasMap: Record<string, string> = {
-	feature: 'feat',
-	features: 'feat',
-	bug: 'fix',
-	bugfix: 'fix',
-	performance: 'perf',
-};
-
-const isChineseLocale = (locale: string) => {
-	const normalized = locale.trim().toLowerCase();
-	return normalized === 'cn' || normalized.startsWith('zh');
-};
-
-const splitConventionalTitle = (title: string) => {
-	const match = title.match(conventionalTitlePrefixPattern);
-	if (!match) {
-		return {
-			prefix: '',
-			subject: title.trim(),
-		};
-	}
-
-	return {
-		prefix: match[1],
-		subject: (match[2] || '').trim(),
-	};
-};
-
-const createConventionalTypeLookup = (rawConventionalTypes?: string) => {
-	const lookup = new Map<string, string>();
-	const parsed = parseConventionalTypes(rawConventionalTypes);
-
-	for (const typeName of Object.keys(parsed)) {
-		lookup.set(normalizeKey(typeName), typeName);
-	}
-
-	for (const [alias, canonical] of Object.entries(conventionalTypeAliasMap)) {
-		if (lookup.has(normalizeKey(alias))) {
-			continue;
-		}
-
-		const mapped = lookup.get(normalizeKey(canonical));
-		if (mapped) {
-			lookup.set(normalizeKey(alias), mapped);
-		}
-	}
-
-	return lookup;
-};
-
-const resolveConventionalTypeToken = (
-	token: string,
-	lookup: Map<string, string>,
-) => lookup.get(normalizeKey(token));
-
-const inferConventionalTypeFromSubject = (
-	subject: string,
-	lookup: Map<string, string>,
-) => {
-	const match = subject.trim().match(conventionalLeadingTypePattern);
-	if (!match?.[1]) {
-		return undefined;
-	}
-
-	return resolveConventionalTypeToken(match[1], lookup);
-};
-
-const stripLeadingTypeWord = (
-	subject: string,
-	typeName: string,
-	lookup: Map<string, string>,
-) => {
-	const trimmedSubject = subject.trim();
-	const leadingTypeMatch = trimmedSubject.match(/^([a-z]+)(?:\s+|[:-])/i);
-	if (!leadingTypeMatch?.[1]) {
-		return subject;
-	}
-
-	const stripped = trimmedSubject.slice(leadingTypeMatch[0].length).trim();
-	if (!stripped) {
-		return subject;
-	}
-
-	const resolvedLeadingType = resolveConventionalTypeToken(leadingTypeMatch[1], lookup);
-	if (!resolvedLeadingType) {
-		return subject;
-	}
-
-	if (normalizeKey(resolvedLeadingType) !== normalizeKey(typeName)) {
-		return subject;
-	}
-
-	return stripped || subject;
-};
-
-const harmonizeConventionalTitle = (
-	title: string,
-	lookup: Map<string, string>,
-) => {
-	const match = title.match(conventionalTitleTypeScopePattern);
-	if (!match) {
-		return title;
-	}
-
-	const [, rawType, rawScope = '', rawSubject = ''] = match;
-	const subject = rawSubject.trim();
-	if (!subject) {
-		return title;
-	}
-
-	const currentType = resolveConventionalTypeToken(rawType, lookup) || rawType.toLowerCase();
-	const inferredType = inferConventionalTypeFromSubject(subject, lookup);
-	const nextType = inferredType || currentType;
-	const nextSubject = stripLeadingTypeWord(subject, nextType, lookup);
-
-	return `${nextType}${rawScope}: ${nextSubject || subject}`;
-};
-
-const harmonizeConventionalMessage = (
-	message: string,
-	includeDetails: boolean,
-	lookup: Map<string, string>,
-) => {
-	const { title, body } = includeDetails
-		? splitCommitMessage(message)
-		: { title: message.trim(), body: '' };
-	const harmonizedTitle = harmonizeConventionalTitle(title, lookup);
-
-	return includeDetails
-		? formatCommitMessage(harmonizedTitle, body)
-		: harmonizedTitle;
-};
-
-export const stripConventionalScopeFromMessage = (
-	message: string,
-	includeDetails: boolean,
-) => {
-	const { title, body } = includeDetails
-		? splitCommitMessage(message)
-		: { title: message.trim(), body: '' };
-
-	const match = title.match(conventionalTitleTypeScopePattern);
-	if (!match) {
-		return message;
-	}
-
-	const [, rawType = '', , rawSubject = ''] = match;
-	const normalizedType = rawType.trim().toLowerCase();
-	const normalizedSubject = rawSubject.trim();
-	if (!normalizedType || !normalizedSubject) {
-		return message;
-	}
-
-	const normalizedTitle = `${normalizedType}: ${normalizedSubject}`;
-	return includeDetails
-		? formatCommitMessage(normalizedTitle, body)
-		: normalizedTitle;
-};
-
-const conventionalScopedTitlePattern = /^[a-z]+\([^)\s][^)]*\):\s*\S/i;
-
-const getMessageTitle = (
-	message: string,
-	includeDetails: boolean,
-) => (
-	includeDetails
-		? splitCommitMessage(message).title
-		: message.trim()
-);
-
-const supportsConventionalScope = (
-	conventionalFormat: string | undefined,
-) => {
-	if (!conventionalFormat?.trim()) {
-		return true;
-	}
-
-	return /<\s*scope\s*>/i.test(conventionalFormat);
-};
-
-const hasConventionalScope = (
-	message: string,
-	includeDetails: boolean,
-) => conventionalScopedTitlePattern.test(getMessageTitle(message, includeDetails));
-
-const shouldRewriteTitleToLocale = (
-	title: string,
-	locale: string,
-) => {
-	if (!isChineseLocale(locale)) {
-		return false;
-	}
-
-	const { subject } = splitConventionalTitle(title);
-	if (subject.length === 0) {
-		return false;
-	}
-
-	return !chineseCharacterPattern.test(subject);
-};
-
-const rewriteTitleToLocale = async (
-	apiKey: string,
-	model: TiktokenModel,
-	apiMode: ApiMode,
-	locale: string,
-	title: string,
-	maxLength: number,
-	timeout: number,
-	proxy?: string,
-	baseUrl?: string,
-	onStreamEvent?: CompletionStreamCallback,
-	requestOptions?: Record<string, unknown>,
-) => {
-	const { prefix, subject } = splitConventionalTitle(title);
-	const instructions = [
-		`Rewrite ONLY this commit title into locale "${locale}".`,
-		'Keep technical meaning unchanged and keep wording concise.',
-		`Maximum title length: ${maxLength} characters.`,
-		'Return only the rewritten title text. No quotes, no code fences, no explanations.',
-		...(prefix ? [`Preserve this conventional prefix exactly: "${prefix}" and rewrite only the subject part.`] : []),
-	].join('\n');
-
-	const completion = apiMode === 'responses'
-		? await createResponsesResponse(
-			apiKey,
-			createMinimalResponsesRequest(
-				model,
-				instructions,
-				title,
-			),
-			timeout,
-			proxy,
-			baseUrl,
-			onStreamEvent,
-			requestOptions,
-		)
-		: await createChatCompletion(
-			apiKey,
-			createMinimalChatRequest(
-				model,
-				[
-					{
-						role: 'system',
-						content: instructions,
-					},
-					{
-						role: 'user',
-						content: title,
-					},
-				],
-			),
-			timeout,
-			proxy,
-			baseUrl,
-			onStreamEvent,
-			requestOptions,
-		);
-
-	const rewritten = completion.choices
-		.map(choice => (
-			typeof choice.message?.content === 'string'
-				? stripReasoningBlocksFromContent(choice.message.content)
-				: choice.message?.content
-		))
-		.find(content => typeof content === 'string');
-
-	if (!rewritten) {
-		return title;
-	}
-
-	const sanitized = sanitizeSimpleMessage(rewritten);
-	if (!sanitized) {
-		return title;
-	}
-
-	if (!prefix) {
-		return sanitized;
-	}
-
-	const sanitizedSubject = sanitized
-		.replace(conventionalTitlePrefixPattern, '$2')
-		.trim();
-
-	return `${prefix}${sanitizedSubject || subject}`;
-};
-
-const enforceTitleLocale = async (
-	apiKey: string,
-	model: TiktokenModel,
-	apiMode: ApiMode,
-	locale: string,
-	message: string,
-	includeDetails: boolean,
-	maxLength: number,
-	timeout: number,
-	proxy?: string,
-	baseUrl?: string,
-	onStreamEvent?: CompletionStreamCallback,
-	requestOptions?: Record<string, unknown>,
-) => {
-	const { title, body } = includeDetails
-		? splitCommitMessage(message)
-		: { title: message.trim(), body: '' };
-
-	if (!shouldRewriteTitleToLocale(title, locale)) {
-		return message;
-	}
-
-	try {
-		const rewrittenTitle = await rewriteTitleToLocale(
-			apiKey,
-			model,
-			apiMode,
-			locale,
-			title,
-			maxLength,
-			timeout,
-			proxy,
-			baseUrl,
-			onStreamEvent,
-			requestOptions,
-		);
-		return includeDetails
-			? formatCommitMessage(rewrittenTitle, body)
-			: rewrittenTitle;
-	} catch {
-		// Keep original message when rewrite fails.
-		return message;
-	}
-};
 
 const maxPromptDiffChars = 120_000;
 const minPromptDiffChars = 1024;
@@ -1904,20 +1545,14 @@ export const compactDiffForPrompt = (
 export const generateCommitMessage = async (
 	apiKey: string,
 	model: TiktokenModel,
-	locale: string,
 	diff: string,
 	completions: number,
-	maxLength: number,
-	type: CommitType,
 	timeout: number,
 	proxy?: string,
 	options?: GenerateCommitMessageOptions,
 	baseUrl?: string,
 ) => {
-	const resolvedOptions = options ?? {};
-	const includeDetails = resolvedOptions.includeDetails ?? false;
-	const detailsStyle: DetailsStyle = resolvedOptions.detailsStyle ?? 'paragraph';
-	const detailColumnGuide = resolvedOptions.detailColumnGuide ?? defaultDetailColumnGuide;
+	const resolvedOptions = options ?? { messageInstructionsMarkdown: '' };
 	const apiMode = resolvedOptions.apiMode ?? 'responses';
 	const requestOptions = resolveRequestOptionsForApi(
 		resolvedOptions.requestOptionsJson,
@@ -1927,37 +1562,13 @@ export const generateCommitMessage = async (
 	const diffBudgetChars = resolveDiffBudgetChars(resolvedOptions.contextWindowTokens);
 	const compactedDiff = compactDiffForPrompt(diff, diffBudgetChars);
 	const diffWasCompacted = compactedDiff.includes(diffCompactionNotice);
-	const conventionalTypeLookup = createConventionalTypeLookup(resolvedOptions.conventionalTypes);
-	const enforceConventionalScope = (
-		type === 'conventional'
-		&& (resolvedOptions.conventionalScope ?? false)
-		&& supportsConventionalScope(resolvedOptions.conventionalFormat)
-	);
 
-	const requestMessages = async (
-		extraInstructions?: string,
-		includeUserInstructions = true,
-	) => {
-		const mergedInstructions = [
-			includeUserInstructions ? resolvedOptions.instructions?.trim() : '',
-			extraInstructions?.trim(),
-		]
-			.filter(Boolean)
-			.join('\n');
-
-		const promptOptions: PromptOptions = {
-			includeDetails: resolvedOptions.includeDetails,
-			detailsStyle: resolvedOptions.detailsStyle,
-			detailColumnGuide: resolvedOptions.detailColumnGuide,
-			instructions: mergedInstructions,
-			conventionalFormat: resolvedOptions.conventionalFormat,
-			conventionalTypes: resolvedOptions.conventionalTypes,
-			conventionalScope: resolvedOptions.conventionalScope,
+	try {
+		const instructions = generatePrompt({
+			messageInstructionsMarkdown: resolvedOptions.messageInstructionsMarkdown || '',
 			changedFiles: resolvedOptions.changedFiles,
 			diffWasCompacted,
-		};
-
-		const instructions = generatePrompt(locale, maxLength, type, promptOptions);
+		});
 
 		const requestCount = Math.max(1, completions);
 		const completionResponses = await Promise.all(
@@ -2014,85 +1625,14 @@ export const generateCommitMessage = async (
 					return [];
 				}
 
-				return [sanitizeMessage(
+				const sanitized = sanitizeMessage(
 					stripReasoningBlocksFromContent(content),
-					includeDetails,
-					detailsStyle,
-					detailColumnGuide,
-				)];
-			})
-			.filter(Boolean);
+				);
 
-		const localizedMessages = await Promise.all(
-			messages.map(message => enforceTitleLocale(
-				apiKey,
-				model,
-				apiMode,
-				locale,
-				message,
-				includeDetails,
-				maxLength,
-				timeout,
-				proxy,
-				baseUrl,
-				event => resolvedOptions.onStreamEvent?.({
-					phase: 'title-rewrite',
-					...event,
-				}),
-				requestOptions,
-			)),
-		);
+				return sanitized ? [sanitized] : [];
+			});
 
-		const harmonizedMessages = type === 'conventional'
-			? localizedMessages.map(message => harmonizeConventionalMessage(
-				message,
-				includeDetails,
-				conventionalTypeLookup,
-			))
-			: localizedMessages;
-		const scopeNormalizedMessages = (
-			type === 'conventional'
-				&& resolvedOptions.conventionalScope === false
-		)
-			? harmonizedMessages.map(message => stripConventionalScopeFromMessage(
-				message,
-				includeDetails,
-			))
-			: harmonizedMessages;
-
-		return deduplicateMessages(
-			scopeNormalizedMessages
-				.filter(Boolean),
-		);
-	};
-
-	try {
-		const firstPassMessages = await requestMessages();
-		if (!enforceConventionalScope) {
-			return firstPassMessages;
-		}
-
-		const firstPassScopedMessages = firstPassMessages
-			.filter(message => hasConventionalScope(message, includeDetails));
-		if (firstPassScopedMessages.length > 0) {
-			return firstPassScopedMessages;
-		}
-
-		const secondPassMessages = await requestMessages(
-			[
-				'Hard requirement for this run: use conventional title with non-empty scope exactly in "<type>(<scope>): <subject>" format.',
-				'Do not omit scope. Pick the strongest file/class/module anchor as scope.',
-			].join('\n'),
-			false,
-		);
-		const secondPassScopedMessages = secondPassMessages
-			.filter(message => hasConventionalScope(message, includeDetails));
-
-		if (secondPassScopedMessages.length > 0) {
-			return secondPassScopedMessages;
-		}
-
-		return secondPassMessages;
+		return deduplicateMessages(messages);
 	} catch (error) {
 		const errorAsAny = error as any;
 		if (errorAsAny.code === 'ENOTFOUND') {
