@@ -191,6 +191,14 @@ Required
 
 API key for your configured API provider.
 
+You can also keep the secret outside `config.toml` and reference an environment variable instead:
+
+```toml
+api-key = "env:OPENAI_API_KEY"
+```
+
+`${OPENAI_API_KEY}` is also supported if you prefer shell-style syntax.
+
 #### base-url
 
 Required

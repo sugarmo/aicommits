@@ -42,6 +42,24 @@ export default testSuite(({ describe }) => {
 			await fixture.rm();
 		});
 
+		test('resolves api-key from an environment variable reference', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': [
+					'api-key = "env:AICOMMITS_PROVIDER_KEY"',
+					'base-url = "https://api.example.com/v1"',
+				].join('\n'),
+			});
+
+			const get = await aicommits(['config', 'get', 'api-key'], {
+				env: {
+					AICOMMITS_PROVIDER_KEY: 'test-token-from-env',
+				},
+			});
+			expect(get.stdout).toBe('api-key=test-token-from-env');
+
+			await fixture.rm();
+		});
+
 		test('returns default message-path when unset', async () => {
 			const { fixture, aicommits } = await createFixture();
 
@@ -258,6 +276,28 @@ export default testSuite(({ describe }) => {
 
 			expect(exitCode).toBe(1);
 			expect(`${stdout}\n${stderr}`).toMatch('Please set your API base URL');
+
+			await fixture.rm();
+		});
+
+		test('fails at runtime when api-key environment variable is missing', async () => {
+			const { fixture, aicommits } = await createFixture({
+				'.aicommits/config.toml': [
+					'api-key = "env:MISSING_AICOMMITS_API_KEY"',
+					'base-url = "https://api.example.com/v1"',
+				].join('\n'),
+				'data.json': '1. lorem ipsum',
+			});
+			const git = await createGit(fixture.path);
+
+			await git('add', ['data.json']);
+
+			const { stderr, stdout, exitCode } = await aicommits([], {
+				reject: false,
+			});
+
+			expect(exitCode).toBe(1);
+			expect(`${stdout}\n${stderr}`).toMatch('Environment variable MISSING_AICOMMITS_API_KEY is not set');
 
 			await fixture.rm();
 		});

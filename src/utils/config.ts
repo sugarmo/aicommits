@@ -142,6 +142,50 @@ const normalizeStoredPath = (
 	return normalized || defaultValue;
 };
 
+const envVariableNamePattern = /^[A-Za-z_]\w*$/;
+
+const readEnvReferenceName = (value: unknown) => {
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+
+	const normalized = value.trim();
+	if (!normalized) {
+		return undefined;
+	}
+
+	if (normalized.startsWith('env:')) {
+		const variableName = normalized.slice(4).trim();
+		return envVariableNamePattern.test(variableName)
+			? variableName
+			: undefined;
+	}
+
+	const bracketMatch = normalized.match(/^\$\{([A-Za-z_]\w*)\}$/);
+	return bracketMatch?.[1];
+};
+
+const resolveRuntimeConfigValue = (
+	key: ConfigKeys,
+	value: RawConfigValue | undefined,
+) => {
+	if (key !== 'api-key') {
+		return value;
+	}
+
+	const environmentVariableName = readEnvReferenceName(value);
+	if (!environmentVariableName) {
+		return value;
+	}
+
+	const environmentValue = process.env[environmentVariableName];
+	if (environmentValue === undefined) {
+		throw new KnownError(`Invalid config property api-key: Environment variable ${environmentVariableName} is not set`);
+	}
+
+	return environmentValue;
+};
+
 const configParsers = {
 	'api-key'(key?: unknown) {
 		if (!key) {
@@ -752,12 +796,12 @@ export const getConfig = async (
 
 	for (const key of Object.keys(configParsers) as ConfigKeys[]) {
 		const parser = configParsers[key];
-		const value = (
+		const value = resolveRuntimeConfigValue(key, (
 			cliConfig?.[key]
 			?? (key === 'profile' ? undefined : readProfileConfigValue(config, selectedProfile, key))
 			?? asRawConfigValue(config[key])
 			?? readLegacyConfigValue(key, config)
-		);
+		));
 
 		if (suppressErrors) {
 			try {
