@@ -582,6 +582,107 @@ const createMinimalChatRequest = (
 	return request;
 };
 
+const resolveRewriteFeedbackHistory = (
+	options: Pick<PromptOptions, 'rewriteFeedback' | 'rewriteFeedbackHistory'>,
+) => {
+	const history = (options.rewriteFeedbackHistory ?? [])
+		.map(feedback => feedback.trim())
+		.filter(Boolean);
+
+	if (history.length > 0) {
+		return history;
+	}
+
+	const latestFeedback = options.rewriteFeedback?.trim();
+	return latestFeedback ? [latestFeedback] : [];
+};
+
+const resolveRewriteConversation = (
+	options: Pick<
+		PromptOptions,
+		'rewriteConversation' | 'rewriteFromMessage' | 'rewriteFeedback' | 'rewriteFeedbackHistory'
+	>,
+) => {
+	const normalizedConversation = (options.rewriteConversation ?? [])
+		.flatMap((turn) => {
+			if (!turn || (turn.role !== 'assistant' && turn.role !== 'user')) {
+				return [];
+			}
+
+			const content = turn.content.trim();
+			return content
+				? [{
+					role: turn.role,
+					content,
+				}]
+				: [];
+		});
+
+	if (normalizedConversation.length > 0) {
+		return normalizedConversation;
+	}
+
+	const rewriteFromMessage = options.rewriteFromMessage?.trim();
+	const feedbackHistory = resolveRewriteFeedbackHistory(options);
+	if (!rewriteFromMessage || feedbackHistory.length === 0) {
+		return [];
+	}
+
+	return [
+		{
+			role: 'assistant' as const,
+			content: rewriteFromMessage,
+		},
+		{
+			role: 'user' as const,
+			content: buildRewriteFeedbackMessage(feedbackHistory),
+		},
+	];
+};
+
+const buildRewriteFeedbackMessage = (
+	feedbackHistory: string[],
+) => [
+	'Revise your previous commit message instead of drafting a new one from scratch.',
+	'Keep the parts of your previous message that still fit the diff unless the feedback requires changing them.',
+	'Apply all of the following rewrite feedback, not just the latest item:',
+	...feedbackHistory.map((feedback, index) => `${index + 1}. ${feedback}`),
+	'Return only the revised final commit message text.',
+].join('\n\n');
+
+export const buildCommitMessageChatMessages = (
+	instructions: string,
+	diff: string,
+	options: Pick<PromptOptions, 'rewriteConversation' | 'rewriteFromMessage' | 'rewriteFeedback' | 'rewriteFeedbackHistory'>,
+): CreateChatCompletionRequest['messages'] => {
+	const rewriteConversation = resolveRewriteConversation(options);
+
+	if (rewriteConversation.length === 0) {
+		return [
+			{
+				role: 'system' as const,
+				content: instructions,
+			},
+			{
+				role: 'user' as const,
+				content: diff,
+			},
+		];
+	}
+
+	return [
+		{
+			role: 'system' as const,
+			content: instructions,
+		},
+		{
+			role: 'user' as const,
+			content: diff,
+		},
+		...rewriteConversation,
+	];
+};
+
 type ResponsesOutputTextPart = {
 	type?: string;
 	text?: string;
@@ -604,15 +705,39 @@ type ResponsesApiResponse = {
 	output?: ResponsesOutputItem[];
 };
 
+type ResponsesRequestInput = string | Array<{
+	role: 'user' | 'assistant';
+	content: string;
+}>;
+
 const createMinimalResponsesRequest = (
 	model: TiktokenModel,
 	instructions: string,
-	input: string,
+	input: ResponsesRequestInput,
 ) => ({
 	model,
 	instructions,
 	input,
 });
+
+export const buildCommitMessageResponsesInput = (
+	diff: string,
+	options: Pick<PromptOptions, 'rewriteConversation' | 'rewriteFromMessage' | 'rewriteFeedback' | 'rewriteFeedbackHistory'>,
+): ResponsesRequestInput => {
+	const rewriteConversation = resolveRewriteConversation(options);
+
+	if (rewriteConversation.length === 0) {
+		return diff;
+	}
+
+	return [
+		{
+			role: 'user',
+			content: diff,
+		},
+		...rewriteConversation,
+	];
+};
 
 const collectResponsesText = (parts: unknown) => {
 	if (!Array.isArray(parts)) {
@@ -1562,12 +1687,18 @@ export const generateCommitMessage = async (
 	const diffBudgetChars = resolveDiffBudgetChars(resolvedOptions.contextWindowTokens);
 	const compactedDiff = compactDiffForPrompt(diff, diffBudgetChars);
 	const diffWasCompacted = compactedDiff.includes(diffCompactionNotice);
+	const rewriteFeedbackHistory = resolveRewriteFeedbackHistory(resolvedOptions);
+	const rewriteConversation = resolveRewriteConversation(resolvedOptions);
 
 	try {
-		const instructions = generatePrompt({
+		const instructions = buildCommitMessageInstructions({
 			messageInstructionsMarkdown: resolvedOptions.messageInstructionsMarkdown || '',
 			changedFiles: resolvedOptions.changedFiles,
 			diffWasCompacted,
+			rewriteFromMessage: resolvedOptions.rewriteFromMessage,
+			rewriteFeedback: resolvedOptions.rewriteFeedback,
+			rewriteFeedbackHistory,
+			rewriteConversation,
 		});
 
 		const requestCount = Math.max(1, completions);
@@ -1579,7 +1710,15 @@ export const generateCommitMessage = async (
 						createMinimalResponsesRequest(
 							model,
 							instructions,
-							compactedDiff,
+							buildCommitMessageResponsesInput(
+								compactedDiff,
+								{
+									rewriteConversation,
+									rewriteFromMessage: resolvedOptions.rewriteFromMessage,
+									rewriteFeedback: resolvedOptions.rewriteFeedback,
+									rewriteFeedbackHistory,
+								},
+							),
 						),
 						timeout,
 						proxy,
@@ -1594,16 +1733,16 @@ export const generateCommitMessage = async (
 						apiKey,
 						createMinimalChatRequest(
 							model,
-							[
+							buildCommitMessageChatMessages(
+								instructions,
+								compactedDiff,
 								{
-									role: 'system' as const,
-									content: instructions,
+									rewriteConversation,
+									rewriteFromMessage: resolvedOptions.rewriteFromMessage,
+									rewriteFeedback: resolvedOptions.rewriteFeedback,
+									rewriteFeedbackHistory,
 								},
-								{
-									role: 'user' as const,
-									content: compactedDiff,
-								},
-							],
+							),
 						),
 						timeout,
 						proxy,
@@ -1642,3 +1781,15 @@ export const generateCommitMessage = async (
 		throw errorAsAny;
 	}
 };
+
+export const buildCommitMessageInstructions = (
+	options: PromptOptions,
+) => generatePrompt({
+	messageInstructionsMarkdown: options.messageInstructionsMarkdown || '',
+	changedFiles: options.changedFiles,
+	diffWasCompacted: options.diffWasCompacted,
+	rewriteFromMessage: options.rewriteFromMessage,
+	rewriteFeedback: options.rewriteFeedback,
+	rewriteFeedbackHistory: options.rewriteFeedbackHistory,
+	rewriteConversation: options.rewriteConversation,
+});

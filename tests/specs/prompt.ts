@@ -36,5 +36,25 @@ export default testSuite(({ describe, test }) => {
 
 			expect(prompt).toMatch('The diff may be compacted to fit the model context.');
 		});
+
+		test('adds rewrite context when revising an earlier suggestion', () => {
+			const prompt = generatePrompt({
+				messageInstructionsMarkdown: '# Instructions\n- Use English.',
+				rewriteFromMessage: 'refactor: improve commit message flow',
+				rewriteFeedbackHistory: [
+					'Do not include detail.',
+					'Keep it shorter and mention the CLI scope.',
+				],
+			});
+
+			expect(prompt).toMatch('You already suggested a commit message and now need to revise it.');
+			expect(prompt).toMatch('Current suggested commit message:');
+			expect(prompt).toMatch('refactor: improve commit message flow');
+			expect(prompt).toMatch('User rewrite feedback history:');
+			expect(prompt).toMatch('1. Do not include detail.');
+			expect(prompt).toMatch('Keep it shorter and mention the CLI scope.');
+			expect(prompt).toMatch('treat the user rewrite feedback as higher priority');
+			expect(prompt).toMatch('Revise the existing commit message instead of drafting a completely new one from scratch.');
+		});
 	});
 });

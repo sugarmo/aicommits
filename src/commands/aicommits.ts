@@ -3,7 +3,7 @@ import {
 	black, dim, green, red, bgCyan,
 } from 'kolorist';
 import {
-	intro, outro, select, confirm, isCancel,
+	intro, outro,
 } from '@clack/prompts';
 import {
 	assertGitRepo,
@@ -11,10 +11,14 @@ import {
 	getDetectedMessage,
 } from '../utils/git.js';
 import { getConfig } from '../utils/config.js';
-import { generateCommitMessage, type CommitMessageStreamEvent } from '../utils/openai.js';
+import {
+	generateCommitMessage,
+	type CommitMessageStreamEvent,
+} from '../utils/openai.js';
 import { createAnimatedStatusSpinner, type AnimatedStatusSpinner } from '../utils/animated-status-spinner.js';
 import { KnownError, handleCliError } from '../utils/error.js';
 import { applyPostResponseScript } from '../utils/post-response.js';
+import { promptForCommitMessage } from '../utils/commit-message-prompt.js';
 
 const formatThinkingDuration = (elapsedMs: number) => {
 	const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
@@ -98,116 +102,165 @@ export default async (
 	};
 
 	const showReasoningStream = config['show-reasoning'] === true;
-	const s = createAnimatedStatusSpinner();
-	s.start(`The AI (${config.model}) is analyzing your changes`);
-	let stopThinkingTicker: (() => void) | undefined;
-	let thinkingTickerStarted = false;
-	let spinnerOpen = true;
-	let reasoningStarted = false;
-	let activeReasoningPhase: CommitMessageStreamEvent['phase'] | undefined;
-	const phaseLabels: Record<CommitMessageStreamEvent['phase'], string> = {
-		message: 'Message Generation',
-	};
-	const handleStreamEvent = (event: CommitMessageStreamEvent) => {
-		if (event.kind !== 'reasoning' || !event.text) {
-			return;
-		}
-
-		if (!showReasoningStream) {
-			if (!thinkingTickerStarted) {
-				stopThinkingTicker = createThinkingTicker(s, config.model);
-				thinkingTickerStarted = true;
+	const generateMessages = async ({
+		completions = config.generate,
+		rewriteFromMessage,
+		rewriteFeedback,
+		rewriteFeedbackHistory,
+		rewriteConversation,
+		statusMessage = `The AI (${config.model}) is analyzing your changes`,
+		finishedMessage = 'Changes analyzed',
+	}: {
+		completions?: number;
+		rewriteFromMessage?: string;
+		rewriteFeedback?: string;
+		rewriteFeedbackHistory?: string[];
+		rewriteConversation?: Array<{
+			role: 'assistant' | 'user';
+			content: string;
+		}>;
+		statusMessage?: string;
+		finishedMessage?: string;
+	} = {}) => {
+		const s = createAnimatedStatusSpinner();
+		s.start(statusMessage);
+		let stopThinkingTicker: (() => void) | undefined;
+		let thinkingTickerStarted = false;
+		let spinnerOpen = true;
+		let reasoningStarted = false;
+		let activeReasoningPhase: CommitMessageStreamEvent['phase'] | undefined;
+		const phaseLabels: Record<CommitMessageStreamEvent['phase'], string> = {
+			message: 'Message Generation',
+		};
+		const handleStreamEvent = (event: CommitMessageStreamEvent) => {
+			if (event.kind !== 'reasoning' || !event.text) {
+				return;
 			}
-			return;
+
+			if (!showReasoningStream) {
+				if (!thinkingTickerStarted) {
+					stopThinkingTicker = createThinkingTicker(s, config.model);
+					thinkingTickerStarted = true;
+				}
+				return;
+			}
+
+			if (spinnerOpen) {
+				s.stop(`The AI (${config.model}) is thinking`);
+				spinnerOpen = false;
+			}
+
+			if (!reasoningStarted) {
+				process.stdout.write(`${dim(`\nThe AI (${config.model}) is thinking`)}\n`);
+				reasoningStarted = true;
+			}
+
+			if (event.phase !== activeReasoningPhase) {
+				activeReasoningPhase = event.phase;
+				process.stdout.write(`${dim(`[${phaseLabels[event.phase]}]\n`)}`);
+			}
+
+			process.stdout.write(event.text);
+		};
+
+		let nextMessages: string[];
+		try {
+			nextMessages = await generateCommitMessage(
+				config['api-key'],
+				config.model,
+				changes.diff,
+				completions,
+				config.timeout,
+				config.proxy,
+				{
+					...promptOptions,
+					rewriteFromMessage,
+					rewriteFeedback,
+					rewriteFeedbackHistory,
+					rewriteConversation,
+					onStreamEvent: handleStreamEvent,
+				},
+				config['base-url'],
+			);
+		} finally {
+			stopThinkingTicker?.();
+			if (spinnerOpen) {
+				s.stop(finishedMessage);
+			} else if (showReasoningStream) {
+				process.stdout.write('\n');
+			}
 		}
 
-		if (spinnerOpen) {
-			s.stop(`The AI (${config.model}) is thinking`);
-			spinnerOpen = false;
+		if (nextMessages.length === 0) {
+			throw new KnownError('No commit messages were generated. Try again.');
 		}
 
-		if (!reasoningStarted) {
-			process.stdout.write(`${dim(`\nThe AI (${config.model}) is thinking`)}\n`);
-			reasoningStarted = true;
-		}
-
-		if (event.phase !== activeReasoningPhase) {
-			activeReasoningPhase = event.phase;
-			process.stdout.write(`${dim(`[${phaseLabels[event.phase]}]\n`)}`);
-		}
-
-		process.stdout.write(event.text);
+		return Promise.all(nextMessages.map((candidate, index) => applyPostResponseScript(
+			candidate,
+			config.postResponseScriptPath,
+			{
+				candidateCount: nextMessages.length,
+				candidateIndex: index,
+				commitSource: 'cli',
+				configDirectoryPath: config.configDirectoryPath,
+				cwd: process.cwd(),
+				messageFilePath: config.messageFilePath,
+			},
+		)));
 	};
 
-	let messages: string[];
-	try {
-		messages = await generateCommitMessage(
-			config['api-key'],
-			config.model,
-			changes.diff,
-			config.generate,
-			config.timeout,
-			config.proxy,
-			{
-				...promptOptions,
-				onStreamEvent: handleStreamEvent,
-			},
-			config['base-url'],
-		);
-	} finally {
-		stopThinkingTicker?.();
-		if (spinnerOpen) {
-			s.stop('Changes analyzed');
-		} else if (showReasoningStream) {
-			process.stdout.write('\n');
-		}
-	}
+	let messages = await generateMessages();
+	let rewriteFeedbackHistory: string[] = [];
+	let rewriteConversation: Array<{
+		role: 'assistant' | 'user';
+		content: string;
+	}> = [];
 
-	if (messages.length === 0) {
-		throw new KnownError('No commit messages were generated. Try again.');
-	}
-
-	messages = await Promise.all(messages.map((candidate, index) => applyPostResponseScript(
-		candidate,
-		config.postResponseScriptPath,
-		{
-			candidateCount: messages.length,
-			candidateIndex: index,
-			commitSource: 'cli',
-			configDirectoryPath: config.configDirectoryPath,
-			cwd: process.cwd(),
-			messageFilePath: config.messageFilePath,
-		},
-	)));
-
-	let message: string;
+	let message = '';
 
 	if (autoConfirm) {
 		[message] = messages;
 	} else {
 		try {
-			if (messages.length === 1) {
-				[message] = messages;
-				const confirmed = await confirm({
-					message: `Use this commit message?\n\n   ${message}\n`,
-				});
+			let reviewingMessage = true;
+			while (reviewingMessage) {
+				const promptResult = await promptForCommitMessage(messages);
 
-				if (!confirmed || isCancel(confirmed)) {
-					outro('Commit cancelled');
-					return;
-				}
-			} else {
-				const selected = await select({
-					message: `Pick a commit message to use: ${dim('(Ctrl+c to exit)')}`,
-					options: messages.map(value => ({ label: value, value })),
-				});
-
-				if (isCancel(selected)) {
+				if (promptResult.status === 'cancelled') {
 					outro('Commit cancelled');
 					return;
 				}
 
-				message = selected as string;
+				if (promptResult.status === 'submitted') {
+					message = promptResult.message;
+					reviewingMessage = false;
+					break;
+				}
+
+				rewriteFeedbackHistory = [
+					...rewriteFeedbackHistory,
+					promptResult.feedback,
+				];
+				rewriteConversation = [
+					...rewriteConversation,
+					{
+						role: 'assistant',
+						content: promptResult.message,
+					},
+					{
+						role: 'user',
+						content: promptResult.feedback,
+					},
+				];
+				messages = await generateMessages({
+					completions: 1,
+					rewriteFromMessage: promptResult.message,
+					rewriteFeedback: promptResult.feedback,
+					rewriteFeedbackHistory,
+					rewriteConversation,
+					statusMessage: `The AI (${config.model}) is revising your commit message`,
+					finishedMessage: 'Commit message revised',
+				});
 			}
 		} catch (error) {
 			const messageText = error instanceof Error ? error.message : '';
