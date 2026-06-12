@@ -9,6 +9,8 @@ export default testSuite(({ describe }) => {
 			expect(exitCode).toBe(0);
 			expect(stdout).toMatch('--confirm');
 			expect(stdout).toMatch('--yes');
+			expect(stdout).toMatch('--print');
+			expect(stdout).toMatch('--no-commit');
 			await fixture.rm();
 		});
 

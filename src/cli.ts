@@ -113,6 +113,16 @@ cli(
 				description: 'Alias for --confirm',
 				default: false,
 			},
+			print: {
+				type: Boolean,
+				description: 'Print the generated commit message and exit without committing',
+				default: false,
+			},
+			noCommit: {
+				type: Boolean,
+				description: 'Alias for --print',
+				default: false,
+			},
 			version: {
 				type: Boolean,
 				description: 'Show version number',
@@ -154,6 +164,7 @@ cli(
 		if (isCalledFromGitHook || isCalledFromHookCommand) {
 			prepareCommitMessageHook();
 		} else {
+			const printOnly = argv.flags.print || argv.flags.noCommit;
 			aicommits(
 				argv.flags.generate,
 				argv.flags.exclude,
@@ -164,7 +175,8 @@ cli(
 				argv.flags.messageFile,
 				argv.flags.postResponseScript,
 				argv.flags.baseUrl,
-				argv.flags.confirm || argv.flags.yes,
+				argv.flags.confirm || argv.flags.yes || printOnly,
+				printOnly,
 				rawArgv,
 			);
 		}

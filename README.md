@@ -80,6 +80,16 @@ If your environment does not provide an interactive TTY, skip prompts explicitly
 aicommits --confirm # or -y / --yes
 ```
 
+#### Print without committing
+
+To generate a commit message and print it without creating a Git commit:
+
+```sh
+aicommits --print # or --no-commit
+```
+
+This uses the first generated message and exits before running `git commit`.
+
 #### Guide output with Markdown
 
 Commit message style is now controlled by a Markdown file instead of individual formatting flags.

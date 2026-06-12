@@ -59,6 +59,7 @@ export default async (
 	postResponseScript: string | undefined,
 	baseUrl: string | undefined,
 	autoConfirm: boolean | undefined,
+	printOnly: boolean | undefined,
 	rawArgv: string[],
 ) => (async () => {
 	intro(bgCyan(black(' aicommits ')));
@@ -274,6 +275,12 @@ export default async (
 
 			throw error;
 		}
+	}
+
+	if (printOnly) {
+		process.stdout.write(`${message}\n`);
+		outro(`${green('✔')} Commit message printed`);
+		return;
 	}
 
 	// In fallback mode, stage uncommitted files only after message acceptance,

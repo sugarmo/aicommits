@@ -1,6 +1,9 @@
 import fs from 'fs/promises';
+import https from 'https';
 import net from 'net';
+import type { AddressInfo } from 'net';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { testSuite, expect } from 'manten';
 import {
 	createFixture,
@@ -11,6 +14,9 @@ import {
 } from '../../utils.js';
 
 const conventionalCommitPattern = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?:\s+\S/;
+const printOnlyMessage = 'fix(cli): print generated commit message';
+const testHttpsKeyPath = fileURLToPath(new URL('../../fixtures/local-https.key.pem', import.meta.url));
+const testHttpsCertificatePath = fileURLToPath(new URL('../../fixtures/local-https.cert.pem', import.meta.url));
 
 const conventionalMessageFile = [
 	'# Commit Message Instructions',
@@ -56,6 +62,73 @@ const isLocalProxyReachable = (port = 8888) => new Promise<boolean>((resolve) =>
 	socket.once('error', () => closeAndResolve(false));
 });
 
+const createFakeResponsesApi = async (message: string) => {
+	const [key, cert] = await Promise.all([
+		fs.readFile(testHttpsKeyPath, 'utf8'),
+		fs.readFile(testHttpsCertificatePath, 'utf8'),
+	]);
+	let requestCount = 0;
+
+	// Production config requires HTTPS provider URLs, so the fake provider uses fixture TLS.
+	const server = https.createServer({
+		key,
+		cert,
+	}, (request, response) => {
+		requestCount += 1;
+		request.resume();
+
+		if (request.method !== 'POST' || request.url !== '/v1/responses') {
+			response.writeHead(404);
+			response.end();
+			return;
+		}
+
+		response.writeHead(200, {
+			'Content-Type': 'application/json',
+		});
+		response.end(JSON.stringify({
+			model: 'test-model',
+			output: [
+				{
+					type: 'message',
+					role: 'assistant',
+					content: [
+						{
+							type: 'output_text',
+							text: message,
+						},
+					],
+				},
+			],
+		}));
+	});
+
+	await new Promise<void>((resolve, reject) => {
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', () => {
+			server.off('error', reject);
+			resolve();
+		});
+	});
+
+	const address = server.address() as AddressInfo;
+
+	return {
+		baseUrl: `https://127.0.0.1:${address.port}/v1`,
+		getRequestCount: () => requestCount,
+		close: () => new Promise<void>((resolve, reject) => {
+			server.close((error) => {
+				if (error) {
+					reject(error);
+					return;
+				}
+
+				resolve();
+			});
+		}),
+	};
+};
+
 export default testSuite(({ describe }) => {
 	if (process.platform === 'win32') {
 		console.warn('Skipping tests on Windows because Node.js spawn cant open TTYs');
@@ -90,6 +163,60 @@ export default testSuite(({ describe }) => {
 			expect(stdout).toMatch('No staged changes found.');
 
 			await fixture.rm();
+		});
+
+		const expectPrintOnlyFlag = async (
+			flag: '--print' | '--no-commit',
+			onTestFail: (callback: () => void) => void,
+		) => {
+			const fakeApi = await createFakeResponsesApi(printOnlyMessage);
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'.aicommits/config.toml': [
+					'api-key = "test-key"',
+					`base-url = ${JSON.stringify(fakeApi.baseUrl)}`,
+					'model = "gpt-4o-mini"',
+				].join('\n'),
+			});
+			const git = await createGit(fixture.path);
+
+			try {
+				await git('add', ['data.json']);
+
+				const { stdout, stderr, exitCode } = await aicommits([flag], {
+					reject: false,
+					timeout: 7000,
+					env: {
+						NODE_EXTRA_CA_CERTS: testHttpsCertificatePath,
+					},
+				});
+				const head = await git('rev-parse', ['--verify', 'HEAD'], {
+					reject: false,
+				});
+
+				onTestFail(() => console.log({
+					stdout,
+					stderr,
+					exitCode,
+					headExitCode: head.exitCode,
+				}));
+				expect(exitCode).toBe(0);
+				expect(stdout).toMatch(printOnlyMessage);
+				expect(stdout).not.toMatch('Successfully committed');
+				expect(head.exitCode).not.toBe(0);
+				expect(fakeApi.getRequestCount()).toBe(1);
+			} finally {
+				await fakeApi.close();
+				await fixture.rm();
+			}
+		};
+
+		test('prints generated commit message without committing', async ({ onTestFail }) => {
+			await expectPrintOnlyFlag('--print', onTestFail);
+		});
+
+		test('supports --no-commit as a print-only alias', async ({ onTestFail }) => {
+			await expectPrintOnlyFlag('--no-commit', onTestFail);
 		});
 
 		if (!hasLiveTestProviderConfig()) {
