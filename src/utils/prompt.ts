@@ -1,5 +1,6 @@
 export type PromptOptions = {
 	messageInstructionsMarkdown: string;
+	steer?: string;
 	changedFiles?: string[];
 	diffWasCompacted?: boolean;
 	rewriteFromMessage?: string;
@@ -47,6 +48,19 @@ const getRewriteFeedbackHistory = (options: PromptOptions) => {
 	return latestFeedback ? [latestFeedback] : [];
 };
 
+const getSteerInstruction = (steer?: string) => {
+	const normalized = steer?.trim();
+	if (!normalized) {
+		return '';
+	}
+
+	return [
+		'User-provided commit intent:',
+		normalized,
+		'Use this intent as extra context for the purpose of the change. If it conflicts with the diff, prefer the diff.',
+	].join('\n');
+};
+
 export const generatePrompt = (
 	options: PromptOptions,
 ) => [
@@ -59,6 +73,7 @@ export const generatePrompt = (
 		? ['The diff may be compacted to fit the model context. Infer the dominant outcome from the available patches without pretending to have seen omitted content.']
 		: []),
 	getChangedFilesInstruction(options.changedFiles),
+	getSteerInstruction(options.steer),
 	...(
 		(options.rewriteConversation ?? []).length > 0
 			? [

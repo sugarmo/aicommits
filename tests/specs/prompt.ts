@@ -28,6 +28,18 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('apps/web/src/a.ts');
 		});
 
+		test('includes user steer as purpose context for first generation', () => {
+			const prompt = generatePrompt({
+				messageInstructionsMarkdown: '# Instructions\n- Use English.',
+				steer: 'Fix the page failing to load',
+			});
+
+			expect(prompt).toMatch('User-provided commit intent:');
+			expect(prompt).toMatch('Fix the page failing to load');
+			expect(prompt).toMatch('Use this intent as extra context for the purpose of the change.');
+			expect(prompt).toMatch('If it conflicts with the diff, prefer the diff.');
+		});
+
 		test('adds compacted diff guidance when needed', () => {
 			const prompt = generatePrompt({
 				messageInstructionsMarkdown: '# Instructions\n- Use English.',

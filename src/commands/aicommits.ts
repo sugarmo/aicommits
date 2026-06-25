@@ -56,11 +56,12 @@ export default async (
 	reasoningEffort: string | undefined,
 	apiMode: string | undefined,
 	messageFile: string | undefined,
+	steer: string | undefined,
 	postResponseScript: string | undefined,
 	baseUrl: string | undefined,
 	autoConfirm: boolean | undefined,
 	printOnly: boolean | undefined,
-	rawArgv: string[],
+	gitCommitArgs: string[],
 ) => (async () => {
 	intro(bgCyan(black(' aicommits ')));
 	await assertGitRepo();
@@ -102,6 +103,7 @@ export default async (
 
 	const promptOptions = {
 		messageInstructionsMarkdown: config.messageInstructionsMarkdown,
+		steer,
 		reasoningEffort: config['reasoning-effort'],
 		requestOptionsJson: config['request-options'],
 		apiMode: config['api-mode'],
@@ -296,7 +298,7 @@ export default async (
 		await execa('git', ['add', '--all', '--', ...changes.files]);
 	}
 
-	await execa('git', ['commit', '-m', message, ...rawArgv]);
+	await execa('git', ['commit', '-m', message, ...gitCommitArgs]);
 
 	outro(`${green('✔')} Successfully committed!`);
 })().catch((error) => {

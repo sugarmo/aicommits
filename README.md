@@ -90,6 +90,16 @@ aicommits --print # or --no-commit
 
 This uses the first generated message and exits before running `git commit`.
 
+#### Steer the first AI draft
+
+Use `--steer` to give the model one-off context about what the commit is meant to accomplish before it writes the first draft:
+
+```sh
+aicommits --steer "Fix the page failing to load"
+```
+
+The steer text helps the model describe the intent of the change instead of only restating the diff. The diff remains the source of truth if the steer text conflicts with the code.
+
 #### Guide output with Markdown
 
 Commit message style is now controlled by a Markdown file instead of individual formatting flags.

@@ -94,6 +94,10 @@ cli(
 				type: String,
 				description: 'Markdown file used to guide commit message generation',
 			},
+			steer: {
+				type: String,
+				description: 'One-off context describing the intended purpose of this commit',
+			},
 			postResponseScript: {
 				type: String,
 				description: 'Executable script that can rewrite the AI response via stdin/stdout',
@@ -165,6 +169,7 @@ cli(
 			prepareCommitMessageHook();
 		} else {
 			const printOnly = argv.flags.print || argv.flags.noCommit;
+			const gitCommitArgs = [...rawArgv];
 			aicommits(
 				argv.flags.generate,
 				argv.flags.exclude,
@@ -173,11 +178,12 @@ cli(
 				argv.flags.reasoningEffort,
 				argv.flags.apiMode,
 				argv.flags.messageFile,
+				argv.flags.steer,
 				argv.flags.postResponseScript,
 				argv.flags.baseUrl,
 				argv.flags.confirm || argv.flags.yes || printOnly,
 				printOnly,
-				rawArgv,
+				gitCommitArgs,
 			);
 		}
 	},

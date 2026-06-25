@@ -68,6 +68,7 @@ const createFakeResponsesApi = async (message: string) => {
 		fs.readFile(testHttpsCertificatePath, 'utf8'),
 	]);
 	let requestCount = 0;
+	const requestBodies: unknown[] = [];
 
 	// Production config requires HTTPS provider URLs, so the fake provider uses fixture TLS.
 	const server = https.createServer({
@@ -75,32 +76,41 @@ const createFakeResponsesApi = async (message: string) => {
 		cert,
 	}, (request, response) => {
 		requestCount += 1;
-		request.resume();
 
 		if (request.method !== 'POST' || request.url !== '/v1/responses') {
+			request.resume();
 			response.writeHead(404);
 			response.end();
 			return;
 		}
 
-		response.writeHead(200, {
-			'Content-Type': 'application/json',
+		const chunks: Buffer[] = [];
+		request.on('data', chunk => chunks.push(chunk));
+		request.on('end', () => {
+			const body = Buffer.concat(chunks).toString();
+			if (body.trim()) {
+				requestBodies.push(JSON.parse(body));
+			}
+
+			response.writeHead(200, {
+				'Content-Type': 'application/json',
+			});
+			response.end(JSON.stringify({
+				model: 'test-model',
+				output: [
+					{
+						type: 'message',
+						role: 'assistant',
+						content: [
+							{
+								type: 'output_text',
+								text: message,
+							},
+						],
+					},
+				],
+			}));
 		});
-		response.end(JSON.stringify({
-			model: 'test-model',
-			output: [
-				{
-					type: 'message',
-					role: 'assistant',
-					content: [
-						{
-							type: 'output_text',
-							text: message,
-						},
-					],
-				},
-			],
-		}));
 	});
 
 	await new Promise<void>((resolve, reject) => {
@@ -116,6 +126,7 @@ const createFakeResponsesApi = async (message: string) => {
 	return {
 		baseUrl: `https://127.0.0.1:${address.port}/v1`,
 		getRequestCount: () => requestCount,
+		getRequestBodies: () => requestBodies,
 		close: () => new Promise<void>((resolve, reject) => {
 			server.close((error) => {
 				if (error) {
@@ -217,6 +228,146 @@ export default testSuite(({ describe }) => {
 
 		test('supports --no-commit as a print-only alias', async ({ onTestFail }) => {
 			await expectPrintOnlyFlag('--no-commit', onTestFail);
+		});
+
+		test('passes --steer text into the generation instructions', async ({ onTestFail }) => {
+			const fakeApi = await createFakeResponsesApi(printOnlyMessage);
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'.aicommits/config.toml': [
+					'api-key = "test-key"',
+					`base-url = ${JSON.stringify(fakeApi.baseUrl)}`,
+					'model = "gpt-4o-mini"',
+				].join('\n'),
+			});
+			const git = await createGit(fixture.path);
+
+			try {
+				await git('add', ['data.json']);
+
+				const { stdout, stderr, exitCode } = await aicommits([
+					'--steer',
+					'Fix the page failing to load',
+					'--print',
+				], {
+					reject: false,
+					timeout: 7000,
+					env: {
+						NODE_EXTRA_CA_CERTS: testHttpsCertificatePath,
+					},
+				});
+
+				const [requestBody] = fakeApi.getRequestBodies();
+				const instructions = (
+					typeof requestBody === 'object'
+					&& requestBody !== null
+					&& 'instructions' in requestBody
+					&& typeof requestBody.instructions === 'string'
+				)
+					? requestBody.instructions
+					: '';
+
+				onTestFail(() => console.log({
+					stdout,
+					stderr,
+					exitCode,
+					requestBody,
+				}));
+				expect(exitCode).toBe(0);
+				expect(instructions).toMatch('User-provided commit intent:');
+				expect(instructions).toMatch('Fix the page failing to load');
+			} finally {
+				await fakeApi.close();
+				await fixture.rm();
+			}
+		});
+
+		test('commits with --steer and --yes without passing them to git commit', async ({ onTestFail }) => {
+			const fakeApi = await createFakeResponsesApi(printOnlyMessage);
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'.aicommits/config.toml': [
+					'api-key = "test-key"',
+					`base-url = ${JSON.stringify(fakeApi.baseUrl)}`,
+					'model = "gpt-4o-mini"',
+				].join('\n'),
+			});
+			const git = await createGit(fixture.path);
+
+			try {
+				await git('add', ['data.json']);
+
+				const { stdout, stderr, exitCode } = await aicommits([
+					'--steer',
+					'Fix the page failing to load',
+					'--yes',
+				], {
+					reject: false,
+					timeout: 7000,
+					env: {
+						NODE_EXTRA_CA_CERTS: testHttpsCertificatePath,
+					},
+				});
+				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s'], {
+					reject: false,
+				});
+
+				onTestFail(() => console.log({
+					stdout,
+					stderr,
+					exitCode,
+					commitMessage,
+				}));
+				expect(exitCode).toBe(0);
+				expect(commitMessage).toBe(printOnlyMessage);
+			} finally {
+				await fakeApi.close();
+				await fixture.rm();
+			}
+		});
+
+		test('commits with --yes before --steer', async ({ onTestFail }) => {
+			const fakeApi = await createFakeResponsesApi(printOnlyMessage);
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'.aicommits/config.toml': [
+					'api-key = "test-key"',
+					`base-url = ${JSON.stringify(fakeApi.baseUrl)}`,
+					'model = "gpt-4o-mini"',
+				].join('\n'),
+			});
+			const git = await createGit(fixture.path);
+
+			try {
+				await git('add', ['data.json']);
+
+				const { stdout, stderr, exitCode } = await aicommits([
+					'--yes',
+					'--steer',
+					'Fix the page failing to load',
+				], {
+					reject: false,
+					timeout: 7000,
+					env: {
+						NODE_EXTRA_CA_CERTS: testHttpsCertificatePath,
+					},
+				});
+				const { stdout: commitMessage } = await git('log', ['--pretty=format:%s'], {
+					reject: false,
+				});
+
+				onTestFail(() => console.log({
+					stdout,
+					stderr,
+					exitCode,
+					commitMessage,
+				}));
+				expect(exitCode).toBe(0);
+				expect(commitMessage).toBe(printOnlyMessage);
+			} finally {
+				await fakeApi.close();
+				await fixture.rm();
+			}
 		});
 
 		if (!hasLiveTestProviderConfig()) {

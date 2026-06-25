@@ -1693,6 +1693,7 @@ export const generateCommitMessage = async (
 	try {
 		const instructions = buildCommitMessageInstructions({
 			messageInstructionsMarkdown: resolvedOptions.messageInstructionsMarkdown || '',
+			steer: resolvedOptions.steer,
 			changedFiles: resolvedOptions.changedFiles,
 			diffWasCompacted,
 			rewriteFromMessage: resolvedOptions.rewriteFromMessage,
@@ -1786,6 +1787,7 @@ export const buildCommitMessageInstructions = (
 	options: PromptOptions,
 ) => generatePrompt({
 	messageInstructionsMarkdown: options.messageInstructionsMarkdown || '',
+	steer: options.steer,
 	changedFiles: options.changedFiles,
 	diffWasCompacted: options.diffWasCompacted,
 	rewriteFromMessage: options.rewriteFromMessage,
