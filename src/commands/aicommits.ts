@@ -73,15 +73,16 @@ export default async (
 	}
 
 	detectingFiles.start('Detecting git changes');
-	const changes = await getDiffForRequest(excludeFiles);
+	const detectedChanges = await getDiffForRequest(excludeFiles);
 
-	if (!changes) {
+	if (!detectedChanges) {
 		detectingFiles.stop('Detecting git changes');
 		throw new KnownError('No staged changes found. Stage your changes manually, or automatically stage all changes with the `--all` flag.');
 	}
 
-	detectingFiles.stop(`${getDetectedMessage(changes.files, changes.source)}:\n${changes.files.map(file => `  ${file}`).join('\n')
+	detectingFiles.stop(`${getDetectedMessage(detectedChanges.files, detectedChanges.source)}:\n${detectedChanges.files.map(file => `  ${file}`).join('\n')
 		}`);
+	let changes = detectedChanges;
 
 	const config = await getConfig({
 		generate: generate?.toString(),
@@ -92,6 +93,12 @@ export default async (
 		'post-response-script': postResponseScript,
 		'base-url': baseUrl,
 	});
+
+	if (config['include-submodule-commits']) {
+		changes = await getDiffForRequest(excludeFiles, undefined, {
+			includeSubmoduleCommits: true,
+		}) ?? changes;
+	}
 
 	const promptOptions = {
 		messageInstructionsMarkdown: config.messageInstructionsMarkdown,

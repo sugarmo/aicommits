@@ -314,6 +314,16 @@ Use `0` to switch back to auto mode:
 aicommits config set context-window=0
 ```
 
+#### include-submodule-commits
+
+Default: `false`
+
+When a staged or uncommitted change updates a Git submodule pointer, include that submodule's commit log in the diff sent to the model. This gives the model the submodule commit subjects as context instead of only seeing the old and new submodule SHAs.
+
+```sh
+aicommits config set include-submodule-commits=true
+```
+
 #### message-path
 
 Default: `message.md`

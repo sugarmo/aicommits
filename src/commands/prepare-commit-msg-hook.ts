@@ -60,19 +60,22 @@ export default () => (async () => {
 	}
 
 	const config = await getConfig({});
+	const diff = config['include-submodule-commits']
+		? await getStagedDiff(undefined, undefined, { includeSubmoduleCommits: true }) ?? staged
+		: staged;
 	const promptOptions = {
 		messageInstructionsMarkdown: config.messageInstructionsMarkdown,
 		reasoningEffort: config['reasoning-effort'],
 		requestOptionsJson: config['request-options'],
 		apiMode: config['api-mode'],
 		contextWindowTokens: config['context-window'],
-		changedFiles: staged.files,
+		changedFiles: diff.files,
 	};
 
 	const messages = await generateCommitMessage(
 		config['api-key'],
 		config.model,
-		staged.diff,
+		diff.diff,
 		config.generate,
 		config.timeout,
 		config.proxy,

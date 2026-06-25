@@ -83,6 +83,7 @@ export const createGit = async (cwd: string) => {
 
 	await git('config', ['user.name', 'name']);
 	await git('config', ['user.email', 'email']);
+	await git('config', ['commit.gpgsign', 'false']);
 
 	return git;
 };

@@ -42,6 +42,21 @@ export default testSuite(({ describe }) => {
 			await fixture.rm();
 		});
 
+		test('stores and reads submodule commit context config', async () => {
+			const { fixture, aicommits } = await createFixture();
+
+			await aicommits([
+				'config',
+				'set',
+				'include-submodule-commits=true',
+			]);
+
+			const get = await aicommits(['config', 'get', 'include-submodule-commits']);
+			expect(get.stdout).toBe('include-submodule-commits=true');
+
+			await fixture.rm();
+		});
+
 		test('resolves api-key from an environment variable reference', async () => {
 			const { fixture, aicommits } = await createFixture({
 				'.aicommits/config.toml': [

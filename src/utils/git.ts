@@ -44,6 +44,10 @@ export type GitDiff = {
 	source: DiffSource;
 };
 
+type DiffOptions = {
+	includeSubmoduleCommits?: boolean;
+};
+
 const filesToExclude = [
 	'package-lock.json',
 	'pnpm-lock.yaml',
@@ -67,6 +71,7 @@ const buildDiff = async (
 	diffArgs: string[],
 	excludeFiles?: string[],
 	cwd?: string,
+	options: DiffOptions = {},
 ) => {
 	const excludePathspecs = getExcludePathspecs(excludeFiles);
 	const { stdout: files } = await execa(
@@ -85,10 +90,13 @@ const buildDiff = async (
 		return;
 	}
 
+	const diffOutputArgs = options.includeSubmoduleCommits
+		? [...diffArgs, '--submodule=log']
+		: diffArgs;
 	const { stdout: diff } = await execa(
 		'git',
 		[
-			...diffArgs,
+			...diffOutputArgs,
 			...excludePathspecs,
 		],
 		{
@@ -182,9 +190,10 @@ export const hasStagedChanges = async (cwd?: string) => {
 export const getStagedDiff = async (
 	excludeFiles?: string[],
 	cwd?: string,
+	options?: DiffOptions,
 ): Promise<GitDiff | undefined> => {
 	const diffCached = ['diff', '--cached', '--diff-algorithm=minimal'];
-	const staged = await buildDiff(diffCached, excludeFiles, cwd);
+	const staged = await buildDiff(diffCached, excludeFiles, cwd, options);
 	if (!staged) {
 		return;
 	}
@@ -195,9 +204,10 @@ export const getStagedDiff = async (
 export const getUncommittedDiff = async (
 	excludeFiles?: string[],
 	cwd?: string,
+	options?: DiffOptions,
 ): Promise<GitDiff | undefined> => {
 	const diffWorkingTree = ['diff', '--diff-algorithm=minimal'];
-	const unstaged = await buildDiff(diffWorkingTree, excludeFiles, cwd);
+	const unstaged = await buildDiff(diffWorkingTree, excludeFiles, cwd, options);
 	const untrackedFiles = await getUntrackedFiles(excludeFiles, cwd);
 
 	if (!unstaged && untrackedFiles.length === 0) {
@@ -228,8 +238,9 @@ export const getUncommittedDiff = async (
 export const getDiffForRequest = async (
 	excludeFiles?: string[],
 	cwd?: string,
+	options?: DiffOptions,
 ) => {
-	const staged = await getStagedDiff(excludeFiles, cwd);
+	const staged = await getStagedDiff(excludeFiles, cwd, options);
 	if (staged) {
 		return staged;
 	}
@@ -239,7 +250,7 @@ export const getDiffForRequest = async (
 		return;
 	}
 
-	return getUncommittedDiff(excludeFiles, cwd);
+	return getUncommittedDiff(excludeFiles, cwd, options);
 };
 
 export const getDetectedMessage = (

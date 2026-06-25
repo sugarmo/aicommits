@@ -296,6 +296,9 @@ const configParsers = {
 	'show-reasoning'(showReasoning?: unknown) {
 		return parseBoolean('show-reasoning', showReasoning, false);
 	},
+	'include-submodule-commits'(includeSubmoduleCommits?: unknown) {
+		return parseBoolean('include-submodule-commits', includeSubmoduleCommits, false);
+	},
 	'reasoning-effort'(reasoningEffort?: unknown) {
 		if (reasoningEffort === undefined || reasoningEffort === null || reasoningEffort === '') {
 			return '';
