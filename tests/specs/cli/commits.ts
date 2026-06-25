@@ -282,6 +282,57 @@ export default testSuite(({ describe }) => {
 			}
 		});
 
+		test('treats empty --steer text as omitted', async ({ onTestFail }) => {
+			const fakeApi = await createFakeResponsesApi(printOnlyMessage);
+			const { fixture, aicommits } = await createFixture({
+				...files,
+				'.aicommits/config.toml': [
+					'api-key = "test-key"',
+					`base-url = ${JSON.stringify(fakeApi.baseUrl)}`,
+					'model = "gpt-4o-mini"',
+				].join('\n'),
+			});
+			const git = await createGit(fixture.path);
+
+			try {
+				await git('add', ['data.json']);
+
+				const { stdout, stderr, exitCode } = await aicommits([
+					'--steer',
+					'',
+					'--print',
+				], {
+					reject: false,
+					timeout: 7000,
+					env: {
+						NODE_EXTRA_CA_CERTS: testHttpsCertificatePath,
+					},
+				});
+
+				const [requestBody] = fakeApi.getRequestBodies();
+				const instructions = (
+					typeof requestBody === 'object'
+					&& requestBody !== null
+					&& 'instructions' in requestBody
+					&& typeof requestBody.instructions === 'string'
+				)
+					? requestBody.instructions
+					: '';
+
+				onTestFail(() => console.log({
+					stdout,
+					stderr,
+					exitCode,
+					requestBody,
+				}));
+				expect(exitCode).toBe(0);
+				expect(instructions).not.toMatch('User-provided commit intent:');
+			} finally {
+				await fakeApi.close();
+				await fixture.rm();
+			}
+		});
+
 		test('commits with --steer and --yes without passing them to git commit', async ({ onTestFail }) => {
 			const fakeApi = await createFakeResponsesApi(printOnlyMessage);
 			const { fixture, aicommits } = await createFixture({

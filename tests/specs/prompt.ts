@@ -40,6 +40,15 @@ export default testSuite(({ describe, test }) => {
 			expect(prompt).toMatch('If it conflicts with the diff, prefer the diff.');
 		});
 
+		test('treats empty steer as omitted', () => {
+			const prompt = generatePrompt({
+				messageInstructionsMarkdown: '# Instructions\n- Use English.',
+				steer: '   ',
+			});
+
+			expect(prompt).not.toMatch('User-provided commit intent:');
+		});
+
 		test('adds compacted diff guidance when needed', () => {
 			const prompt = generatePrompt({
 				messageInstructionsMarkdown: '# Instructions\n- Use English.',
